@@ -1,0 +1,78 @@
+name: inventario_pos
+description: "Inventario y punto de venta offline-first"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # ── Estado ────────────────────────────────────────────────────────────────
+  # Riverpod y no Bloc: la UI se alimenta de streams de Drift, y
+  # StreamProvider/AsyncNotifier encajan con eso sin un evento por cada cambio.
+  flutter_riverpod: ^3.4.2
+
+  # ── Persistencia local (FUENTE DE VERDAD DEL DISPOSITIVO) ─────────────────
+  # Drift y no Hive: hacen falta transacciones, joins y agregados SIN conexión
+  # (los reportes se calculan en local). Hive es clave-valor y no sirve.
+  drift: ^2.34.3
+  drift_flutter: ^0.3.1
+  path_provider: ^2.1.6
+  path: ^1.9.0
+
+  # ── Red ───────────────────────────────────────────────────────────────────
+  dio: ^5.11.0
+  connectivity_plus: ^7.3.1
+
+  # ── Escaneo y códigos ─────────────────────────────────────────────────────
+  mobile_scanner: ^7.4.0
+  qr_flutter: ^4.1.0
+
+  # ── Navegación ────────────────────────────────────────────────────────────
+  go_router: ^17.4.0
+
+  # ── UI ────────────────────────────────────────────────────────────────────
+  flutter_animate: ^4.5.2
+  shimmer: ^3.0.0
+  fl_chart: ^1.2.0
+  intl: 0.20.2 # fijado por flutter_localizations del SDK
+
+  # ── Tickets y etiquetas ───────────────────────────────────────────────────
+  pdf: ^3.13.0
+  printing: ^5.15.0
+  share_plus: ^13.3.0
+
+  # ── Seguridad y sistema ───────────────────────────────────────────────────
+  flutter_secure_storage: ^10.3.1
+  shared_preferences: ^2.5.5
+  crypto: ^3.0.7
+  uuid: ^4.6.0
+  image_picker: ^1.2.3
+  device_info_plus: ^13.2.0
+  package_info_plus: ^10.2.1
+  collection: ^1.19.1
+
+# Paquetes descartados a propósito:
+#
+#  · google_fonts  — descarga las tipografías por HTTP la primera vez. En una
+#    app cuyo requisito nº 1 es arrancar sin conexión, eso es un fallo esperando
+#    a ocurrir. Se usa la tipografía del sistema con un TextTheme afinado.
+#  · lottie        — exige archivos .json de animación de origen externo. Las
+#    microinteracciones se hacen con flutter_animate y CustomPainter, sin assets.
+#  · vibration / audioplayers — Flutter ya trae HapticFeedback y SystemSound.
+#    Dos dependencias nativas menos que mantener.
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  drift_dev: ^2.34.0 # 2.34.1+ arrastra analyzer 13 y choca con el meta que fija flutter_test
+  build_runner: ^2.14.0 # 2.15.2+ exige meta 1.18.3, que choca con flutter_test del SDK
+
+flutter:
+  uses-material-design: true

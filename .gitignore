@@ -1,0 +1,62 @@
+# ─── Secretos ────────────────────────────────────────────────────────────────
+# Lo primero de este archivo, y a propósito: `backend/.env` lleva las
+# credenciales reales de MariaDB y los secretos JWT. Publicarlas en un repo
+# —aunque sea privado— obliga a rotarlas todas. La plantilla que sí se versiona
+# es `backend/.env.example`.
+.env
+.env.local
+.env.*.local
+*.pem
+*.p12
+*.jks
+*.keystore
+key.properties
+
+# ─── Node ────────────────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+coverage/
+backend/uploads/
+
+# ─── Flutter / Dart ──────────────────────────────────────────────────────────
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+*.iml
+.pub-cache/
+.pub/
+
+# El lock SÍ se versiona: sin él, dos compilaciones del mismo commit pueden
+# usar versiones distintas de los paquetes y no ser reproducibles.
+!pubspec.lock
+
+# ─── Android ─────────────────────────────────────────────────────────────────
+# local.properties apunta al SDK de ESTA máquina; en otra (o en CI) sobra.
+mobile/android/local.properties
+mobile/android/.gradle/
+mobile/android/app/debug/
+mobile/android/app/profile/
+mobile/android/app/release/
+.gradle/
+
+# ─── iOS ─────────────────────────────────────────────────────────────────────
+mobile/ios/Pods/
+mobile/ios/.symlinks/
+mobile/ios/Flutter/Flutter.framework
+mobile/ios/Flutter/Flutter.podspec
+mobile/ios/Flutter/Generated.xcconfig
+mobile/ios/Flutter/flutter_export_environment.sh
+mobile/ios/Runner/GeneratedPluginRegistrant.*
+**/*.mode1v3
+**/*.mode2v3
+**/*.perspectivev3
+**/xcuserdata/
+
+# ─── Editores y sistema ──────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

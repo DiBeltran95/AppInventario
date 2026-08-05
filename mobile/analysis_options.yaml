@@ -1,0 +1,25 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - "**/*.g.dart"
+  errors:
+    # Un Future perdido en el motor de sincronización es una venta perdida.
+    unawaited_futures: error
+
+linter:
+  rules:
+    # ── Activadas por encima de flutter_lints ────────────────────────────────
+    always_declare_return_types: true
+    avoid_dynamic_calls: false   # el JSON del pull se recorre con dynamic
+    prefer_final_locals: true
+    unawaited_futures: true
+    directives_ordering: true
+
+    # ── Desactivada, con motivo ──────────────────────────────────────────────
+    #
+    # Falso positivo sistemático aquí: la regla propone `this._campo` como
+    # parámetro, pero Dart PROHÍBE los parámetros con nombre privados. Se
+    # dispara en todo constructor con parámetros nombrados que respaldan campos
+    # privados — el patrón de SyncEngine, AuthRepository y los DAOs.
+    prefer_initializing_formals: false

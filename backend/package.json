@@ -1,0 +1,41 @@
+{
+  "name": "inventario-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "API REST para la app de inventario y punto de venta offline-first",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "db:migrate": "node scripts/migrate.mjs",
+    "db:seed": "node scripts/seed.mjs",
+    "db:reset": "node scripts/migrate.mjs --drop && node scripts/seed.mjs",
+    "db:check": "node scripts/check.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "lint:tx": "node scripts/lint-tx.mjs",
+    "test": "node --test",
+    "verify": "npm run lint:tx && npm test && npm run db:check"
+  },
+  "dependencies": {
+    "@node-rs/argon2": "^2.0.2",
+    "compression": "^1.8.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.6.2",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.1",
+    "mysql2": "^3.14.1",
+    "pino": "^9.7.0",
+    "pino-http": "^10.4.0",
+    "uuid": "^11.1.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "pino-pretty": "^13.0.0"
+  }
+}

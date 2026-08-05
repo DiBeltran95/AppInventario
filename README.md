@@ -1,0 +1,219 @@
+# Inventario POS — inventario y punto de venta offline-first
+
+App Android de gestión de inventario y punto de venta con escaneo de códigos, que **opera al 100 %
+sin conexión** y sincroniza cuando la recupera.
+
+> **La red es una optimización, nunca un requisito de funcionamiento.** El dispositivo puede iniciar
+> sesión, buscar en el catálogo completo, registrar entradas, vender, imprimir el ticket y ver los
+> reportes del día sin una sola petición HTTP. La interfaz lee SQLite; la red sólo alimenta SQLite.
+
+| Capa | Tecnología | Verificado en este entorno |
+|---|---|---|
+| Móvil | Flutter 3.44.1 · Dart 3.12.1 · Riverpod 3 · Drift (SQLite) | ✅ `flutter analyze` sin avisos · 15 pruebas |
+| Backend | Node.js 22.20 · Express 5 | ✅ 14 pruebas · lint de transacciones |
+| Base de datos | **MariaDB 11.4.12** (no MySQL — ver `docs/ARQUITECTURA.md` §7) | ⚠️ requiere credenciales reales |
+
+---
+
+## Estructura
+
+```
+inventario/
+├── docs/            ARQUITECTURA.md · API.md · PROMPT_MEJORADO.md
+├── database/        schema.sql  (+ migrations/ opcional, numeradas)
+├── backend/         API REST — Node 22 + Express 5 + MariaDB
+└── mobile/          App Flutter (Android)
+```
+
+Documentación de referencia:
+
+- **[docs/ARQUITECTURA.md](docs/ARQUITECTURA.md)** — ERD, protocolo de sincronización, política de
+  conflictos y decisiones justificadas.
+- **[docs/API.md](docs/API.md)** — la API endpoint por endpoint.
+- **[docs/PROMPT_MEJORADO.md](docs/PROMPT_MEJORADO.md)** — análisis del encargo original y los
+  22 huecos que hubo que cerrar antes de escribir código.
+
+---
+
+## 1. Puesta en marcha del backend
+
+Requisitos: **Node.js ≥ 20.11** y una base **MariaDB 11.4** accesible.
+
+```bash
+cd backend
+npm install
+cp .env.example .env
+```
+
+Edita `.env` con los datos reales de tu base y genera los secretos JWT:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+```
+
+Crea el esquema y los datos de arranque:
+
+```bash
+npm run db:migrate
+npm run db:seed -- --password "TuClaveSegura"
+```
+
+`db:seed` imprime al final las credenciales creadas (por defecto `admin@inventario.local`).
+
+Comprueba que el motor cumple las invariantes del modelo —triggers de stock, libro append-only,
+modo estricto, `DECIMAL` como string— antes de confiar en él:
+
+```bash
+npm run db:check
+```
+
+Arranca:
+
+```bash
+npm run dev
+```
+
+La API queda en `http://localhost:3100/api/v1` y responde a `GET /health`.
+
+**Comprobaciones que no necesitan base de datos:**
+
+```bash
+npm run lint:tx   # ninguna consulta transaccional se escapa de su conexión
+npm test          # aritmética monetaria del servidor
+```
+
+---
+
+## 2. Puesta en marcha de la app
+
+Requisitos: **Flutter 3.44+** y el SDK de Android con `cmdline-tools`.
+
+```bash
+cd mobile
+flutter pub get
+flutter run
+```
+
+**La URL del servidor no está compilada en el binario.** Se configura desde la propia app
+(pantalla de login → «Configurar servidor», o Ajustes → «Dirección de la API»). Por defecto:
+
+| Dónde corre la app | URL del backend local |
+|---|---|
+| Emulador de Android | `http://10.0.2.2:3100` ← el emulador *es* `localhost` |
+| Dispositivo físico por USB/wifi | `http://<IP-de-tu-PC>:3100` |
+
+El HTTP en claro sólo está habilitado en la compilación **debug**
+(`android/app/src/debug/AndroidManifest.xml`). En release, Android bloquea el tráfico sin cifrar:
+para producción hace falta HTTPS.
+
+Verificación de la app:
+
+```bash
+flutter analyze   # debe terminar sin avisos
+flutter test      # aritmética monetaria del cliente
+```
+
+---
+
+## 3. Cómo probar el modo offline
+
+Es el criterio de aceptación central del proyecto. Requiere un dispositivo o emulador real.
+
+### Prueba A — vender entero en modo avión
+
+1. Con red, inicia sesión una primera vez y espera a que el chip de sincronización diga **«Al día»**.
+   Esta primera vez es obligatoria: baja el catálogo y guarda el derivado local de la contraseña.
+2. **Activa el modo avión.**
+3. Cierra la app por completo y vuelve a abrirla. Debe entrar al dashboard sin pantallas de carga.
+   Si pide credenciales, entra: el desbloqueo se valida contra el hash local.
+4. Escanea y vende **3 productos**. Cobra en efectivo e imprime o comparte el ticket.
+5. Observa el chip de sincronización: dirá **«Sin conexión»**, y las ventas aparecerán marcadas
+   «sin enviar» en el historial. Los reportes del día ya reflejan las ventas.
+6. **Desactiva el modo avión.** En segundos el chip pasa a «Sincronizando…» y luego a «Al día».
+7. Comprueba en MariaDB que las tres ventas llegaron **sin duplicados**:
+
+```sql
+SELECT numero, total, creada_offline, fecha FROM ventas ORDER BY id DESC LIMIT 5;
+```
+
+### Prueba B — idempotencia (el reintento no cobra dos veces)
+
+El escenario que arruina un POS: la venta llega al servidor, la respuesta se pierde por un corte de
+señal, y el cliente reintenta.
+
+```bash
+# Reenvía la MISMA operación dos veces con el mismo client_op_id
+curl -X POST http://localhost:3100/api/v1/sync/push \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"operations":[{"client_op_id":"<uuid-fijo>","tipo":"VENTA_CREAR","entidad_uuid":"<uuid>","payload":{…}}]}'
+```
+
+Resultado correcto: **una sola fila** en `ventas` y **un solo** descuento de stock. La segunda
+respuesta es la guardada, no un efecto nuevo.
+
+### Prueba C — la app muere a mitad del envío
+
+Fuerza el cierre de la app mientras sincroniza (o mata el proceso). Al reabrir, las operaciones que
+quedaron en `ENVIANDO` vuelven a `PENDIENTE` y se reenvían. Gracias al `client_op_id`, reenviarlas
+es seguro: no se pierde ni se duplica ninguna venta.
+
+### Prueba D — sobreventa entre dos dispositivos
+
+Con dos equipos sin conexión, vende la última unidad de un producto en **ambos**. Al reconectar,
+**las dos ventas se aceptan**, el stock queda en negativo y el servidor levanta una alerta de
+sobreventa. Rechazar la segunda descuadraría la caja contra mercancía ya entregada; es la misma
+conducta que Square o Shopify POS.
+
+---
+
+## 4. Roles
+
+| | ADMIN | VENDEDOR |
+|---|:---:|:---:|
+| Vender y consultar el catálogo | ✅ | ✅ |
+| Registrar entradas y ajustes | ✅ | ✅ |
+| Crear, editar y dar de baja productos | ✅ | ❌ |
+| Ver costos, márgenes y valorización | ✅ | ❌ |
+| Anular ventas | ✅ | ❌ |
+
+El vendedor no ve costos ni márgenes: es información sensible del negocio que no necesita para
+despachar.
+
+---
+
+## 5. Qué está verificado y qué no
+
+Este proyecto se construyó en un entorno sin dispositivo Android ni base de datos de producción
+accesible. Para no vender humo:
+
+**Verificado ejecutando:**
+
+- `flutter analyze` sobre la app completa: **0 avisos**.
+- `flutter test`: 15 pruebas de aritmética monetaria (redondeo HALF_UP, desglose de IVA con la
+  invariante `base + impuesto == total`, venta por peso).
+- `npm test` en el backend: 14 pruebas equivalentes, para que cliente y servidor calculen el mismo
+  total al centavo.
+- `npm run lint:tx`: ninguna consulta transaccional se ejecuta fuera de su conexión.
+- Las APIs de `mobile_scanner`, `pdf`, `qr_flutter`, `fl_chart` y `riverpod` se contrastaron contra
+  el código de los paquetes instalados, no de memoria.
+
+**No verificado (requiere hardware o credenciales que no había):**
+
+- **Compilación del APK.** El SDK de Android de esta máquina no tiene `cmdline-tools` y Gradle no
+  logra abrir su conexión de loopback, así que `flutter build apk` no llega a ejecutarse. El código
+  Dart analiza limpio, pero el ensamblado nativo está sin comprobar.
+- **Escaneo real con cámara**, feedback háptico y los presupuestos de tiempo (escaneo → carrito
+  < 400 ms).
+- **Impresión física** del ticket en una térmica de 80 mm (el PDF se genera; no se ha impreso).
+- **`npm run db:check` y `db:migrate` contra MariaDB**: no había credenciales válidas.
+- Las **pruebas offline de la sección 3**: exigen un dispositivo real.
+
+**Pendiente de implementar:**
+
+- **Subida de las fotos de producto al servidor.** La foto se toma, se guarda en el dispositivo y se
+  muestra en el catálogo, pero no viaja en la cola de sincronización: no existe una operación
+  `IMAGEN_SUBIR` en la outbox. El backend ya expone el módulo de uploads; falta conectar los dos
+  extremos.
+- Gestión de categorías y proveedores desde la app (llegan por sincronización; se administran desde
+  la API).
