@@ -9,8 +9,11 @@ name: Build
 on:
   push:
     branches: [main]
+    # Un cambio de documentación no puede costar un runner de macOS a 10x.
+    paths-ignore: ['**.md', 'docs/**', '.gitignore']
   pull_request:
     branches: [main]
+    paths-ignore: ['**.md', 'docs/**', '.gitignore']
   workflow_dispatch:
     inputs:
       construir_ios:

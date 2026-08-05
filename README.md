@@ -19,10 +19,11 @@ sin conexión** y sincroniza cuando la recupera.
 
 ```
 inventario/
-├── docs/            ARQUITECTURA.md · API.md · PROMPT_MEJORADO.md
-├── database/        schema.sql  (+ migrations/ opcional, numeradas)
-├── backend/         API REST — Node 22 + Express 5 + MariaDB
-└── mobile/          App Flutter (Android)
+├── .github/workflows/  build.yml — compila APK e IPA en la nube
+├── docs/               ARQUITECTURA.md · API.md · DESPLIEGUE.md · PROMPT_MEJORADO.md
+├── database/           schema.sql  (+ migrations/ opcional, numeradas)
+├── backend/            API REST — Node 22 + Express 5 + MariaDB
+└── mobile/             App Flutter (Android + iOS)
 ```
 
 Documentación de referencia:
@@ -30,6 +31,8 @@ Documentación de referencia:
 - **[docs/ARQUITECTURA.md](docs/ARQUITECTURA.md)** — ERD, protocolo de sincronización, política de
   conflictos y decisiones justificadas.
 - **[docs/API.md](docs/API.md)** — la API endpoint por endpoint.
+- **[docs/DESPLIEGUE.md](docs/DESPLIEGUE.md)** — puesta en producción en alwaysdata y diagnóstico
+  del error 502.
 - **[docs/PROMPT_MEJORADO.md](docs/PROMPT_MEJORADO.md)** — análisis del encargo original y los
   22 huecos que hubo que cerrar antes de escribir código.
 
@@ -94,17 +97,27 @@ flutter pub get
 flutter run
 ```
 
-**La URL del servidor no está compilada en el binario.** Se configura desde la propia app
-(pantalla de login → «Configurar servidor», o Ajustes → «Dirección de la API»). Por defecto:
+La app apunta por defecto a **`https://inventarios.alwaysdata.net`**, así que un APK recién
+instalado funciona sin tocar nada.
+
+**La URL no está fijada en el binario**: se cambia desde la propia app (login → «Configurar
+servidor», o Ajustes → «Dirección de la API») y queda guardada en el almacén seguro. Para
+desarrollar contra un backend local:
 
 | Dónde corre la app | URL del backend local |
 |---|---|
 | Emulador de Android | `http://10.0.2.2:3100` ← el emulador *es* `localhost` |
 | Dispositivo físico por USB/wifi | `http://<IP-de-tu-PC>:3100` |
 
+También se puede fijar al compilar:
+
+```bash
+flutter build apk --dart-define=API_URL=http://10.0.2.2:3100
+```
+
 El HTTP en claro sólo está habilitado en la compilación **debug**
 (`android/app/src/debug/AndroidManifest.xml`). En release, Android bloquea el tráfico sin cifrar:
-para producción hace falta HTTPS.
+por eso el servidor de producción va por HTTPS.
 
 Verificación de la app:
 
@@ -115,7 +128,36 @@ flutter test      # aritmética monetaria del cliente
 
 ---
 
-## 3. Cómo probar el modo offline
+## 3. Compilar los binarios (GitHub Actions)
+
+No hace falta tener el SDK de Android ni un Mac: el workflow
+[`.github/workflows/build.yml`](.github/workflows/build.yml) lo hace en la nube.
+
+**Actions → Build → Run workflow**, o automáticamente en cada push a `main`.
+
+Al terminar, los binarios quedan en **Artifacts**, al final de la página del run:
+
+| Artefacto | Qué contiene | Se instala |
+|---|---|---|
+| `android-apk` | APK universal + uno por arquitectura | ✅ directamente en el teléfono |
+| `android-aab` | App Bundle | sólo para subir a Play Store |
+| `ios-ipa-sin-firmar` | `.ipa` **sin firmar** | ❌ requiere firma previa |
+
+Antes de compilar corre una puerta de calidad (`flutter analyze`, pruebas de la app y del backend);
+si falla, no se gasta un runner de macOS.
+
+### Sobre la firma
+
+- **Android**: el APK se firma con la clave de **depuración**. Instala y funciona para probar, pero
+  Play Store no lo acepta. Para publicar hay que generar un keystore propio y guardarlo en los
+  secretos del repositorio.
+- **iOS**: se compila con `--no-codesign` porque firmar exige una cuenta de desarrollador de Apple
+  (de pago). El `.ipa` resultante **no se instala tal cual en un iPhone**: hay que firmarlo antes
+  con Xcode, Sideloadly o AltStore. Sin cuenta de Apple no hay forma de evitar este paso.
+
+---
+
+## 4. Cómo probar el modo offline
 
 Es el criterio de aceptación central del proyecto. Requiere un dispositivo o emulador real.
 
@@ -167,7 +209,7 @@ conducta que Square o Shopify POS.
 
 ---
 
-## 4. Roles
+## 5. Roles
 
 | | ADMIN | VENDEDOR |
 |---|:---:|:---:|
@@ -182,7 +224,7 @@ despachar.
 
 ---
 
-## 5. Qué está verificado y qué no
+## 6. Qué está verificado y qué no
 
 Este proyecto se construyó en un entorno sin dispositivo Android ni base de datos de producción
 accesible. Para no vender humo:
