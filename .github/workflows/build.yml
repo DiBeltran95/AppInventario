@@ -20,6 +20,10 @@ on:
         description: 'Compilar también iOS (runner macOS, consume 10x minutos)'
         type: boolean
         default: true
+      omitir_verificacion:
+        description: 'Compilar aunque falle el análisis (sólo para sacar un APK con el CI averiado)'
+        type: boolean
+        default: false
 
 env:
   FLUTTER_VERSION: '3.44.1'
@@ -32,6 +36,9 @@ jobs:
   verificar:
     name: Análisis y pruebas
     runs-on: ubuntu-latest
+    # Sin tope, un runner colgado consume hasta 6 horas de cuota antes de
+    # rendirse. Estos pasos tardan ~3 minutos cuando todo va bien.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -77,7 +84,19 @@ jobs:
   android:
     name: APK Android
     needs: verificar
+    # Válvula de escape para un CI averiado.
+    #
+    # El 2026-08-06 un fallo de infraestructura de GitHub impidió al runner
+    # descargar NINGUNA acción (`actions/checkout@v4` incluido), el job murió en
+    # «Set up job» y, al depender de él, el APK ni siquiera se intentó. El
+    # código estaba perfectamente bien.
+    #
+    # Por defecto la puerta de calidad se respeta. Pero desde el disparador
+    # manual se puede marcar `omitir_verificacion` para sacar un APK igualmente:
+    # es preferible eso a quedarse sin instalable por un tropiezo ajeno.
+    if: ${{ always() && (needs.verificar.result == 'success' || inputs.omitir_verificacion) }}
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
 
@@ -139,8 +158,9 @@ jobs:
   ios:
     name: IPA iOS (sin firmar)
     needs: verificar
-    if: github.event_name != 'workflow_dispatch' || inputs.construir_ios
+    if: ${{ always() && (needs.verificar.result == 'success' || inputs.omitir_verificacion) && (github.event_name != 'workflow_dispatch' || inputs.construir_ios) }}
     runs-on: macos-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
