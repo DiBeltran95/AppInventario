@@ -67,6 +67,9 @@ jobs:
   android:
     name: Android (análisis, pruebas y APK)
     runs-on: ubuntu-latest
+    # Cubre el tiempo EN COLA además del de ejecución. Un trabajo esperando
+    # runner no consume nada, pero deja la ejecución en marcha sin avisar: más
+    # vale fallar pronto y volver a lanzarla que descubrirlo media hora después.
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
