@@ -285,6 +285,59 @@ class AuthRepository {
   Future<String?> ultimoEmail() async =>
       (await SharedPreferences.getInstance()).getString(_kUltimoEmail);
 
+  // ── Gestión de usuarios (ADMIN) ─────────────────────────────────────────
+  //
+  // Único rincón de la app que **exige conexión**. No es una omisión: crear una
+  // cuenta sin poder comprobar que el correo no está repetido en el servidor
+  // produciría dos usuarios distintos con el mismo correo en dos dispositivos,
+  // y no hay forma sensata de resolver ese conflicto después. Las credenciales
+  // las emite el servidor, siempre.
+
+  Future<List<UsuarioAdmin>> listarUsuarios() async {
+    final respuesta = await _api.get('/auth/usuarios');
+    final datos = respuesta['data'] as List<dynamic>;
+    return datos
+        .map((u) => UsuarioAdmin.desdeJson(u as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> crearUsuario({
+    required String nombre,
+    required String email,
+    required String password,
+    required RolUsuario rol,
+    String? telefono,
+  }) async {
+    await _api.post('/auth/usuarios', cuerpo: {
+      'nombre': nombre,
+      'email': email,
+      'password': password,
+      'rol': rol.api,
+      if (telefono != null && telefono.isNotEmpty) 'telefono': telefono,
+    });
+  }
+
+  Future<void> actualizarUsuario(
+    String uuid, {
+    String? nombre,
+    String? email,
+    RolUsuario? rol,
+    bool? activo,
+    String? password,
+  }) async {
+    await _api.patch('/auth/usuarios/$uuid', cuerpo: {
+      // Sólo viajan los campos que cambian: un PATCH con nulos borraría datos.
+      'nombre': ?nombre,
+      'email': ?email,
+      'rol': ?rol?.api,
+      'activo': ?activo,
+      if (password != null && password.isNotEmpty) 'password': password,
+    });
+  }
+
+  /// Baja lógica. El servidor protege al último administrador.
+  Future<void> eliminarUsuario(String uuid) => _api.delete('/auth/usuarios/$uuid');
+
   Future<void> cambiarPassword(String actual, String nueva) async {
     await _api.post(
       '/auth/password',

@@ -17,6 +17,49 @@ enum RolUsuario {
   bool get veCostos => this == RolUsuario.admin;
 }
 
+/// Usuario tal como lo devuelve la API en la pantalla de administración.
+///
+/// No se guarda en SQLite: la gestión de cuentas es una operación en línea y
+/// sus datos no hacen falta para vender. La tabla local `usuarios` sólo guarda
+/// a quien ha iniciado sesión en este dispositivo, para el desbloqueo offline.
+class UsuarioAdmin {
+  const UsuarioAdmin({
+    required this.uuid,
+    required this.nombre,
+    required this.email,
+    required this.rol,
+    required this.activo,
+    this.telefono,
+    this.ultimoAcceso,
+  });
+
+  factory UsuarioAdmin.desdeJson(Map<String, dynamic> json) => UsuarioAdmin(
+        uuid: json['uuid'] as String,
+        nombre: json['nombre'] as String,
+        email: json['email'] as String,
+        rol: RolUsuario.desde(json['rol'] as String?),
+        // MariaDB devuelve los TINYINT(1) como 0/1, no como booleanos.
+        activo: json['activo'] == true || json['activo'] == 1,
+        telefono: json['telefono'] as String?,
+        ultimoAcceso: DateTime.tryParse(json['ultimo_acceso'] as String? ?? ''),
+      );
+
+  final String uuid;
+  final String nombre;
+  final String email;
+  final RolUsuario rol;
+  final bool activo;
+  final String? telefono;
+  final DateTime? ultimoAcceso;
+
+  String get iniciales {
+    final partes = nombre.trim().split(RegExp(r'\s+'));
+    if (partes.isEmpty || partes.first.isEmpty) return '?';
+    if (partes.length == 1) return partes.first.substring(0, 1).toUpperCase();
+    return (partes.first.substring(0, 1) + partes.last.substring(0, 1)).toUpperCase();
+  }
+}
+
 class Sesion {
   const Sesion({
     required this.usuarioUuid,

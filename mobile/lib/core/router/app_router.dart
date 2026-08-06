@@ -6,6 +6,7 @@ import '../../features/ajustes/presentation/ajustes_page.dart';
 import '../../features/ajustes/presentation/pendientes_page.dart';
 import '../../features/auth/presentation/auth_providers.dart';
 import '../../features/auth/presentation/login_page.dart';
+import '../../features/auth/presentation/usuarios_page.dart';
 import '../../features/dashboard/presentation/dashboard_page.dart';
 import '../../features/inventario/presentation/entrada_page.dart';
 import '../../features/inventario/presentation/movimientos_page.dart';
@@ -39,6 +40,7 @@ class Rutas {
   static const movimientos = '/movimientos';
   static const ajustes = '/ajustes';
   static const pendientes = '/pendientes';
+  static const usuarios = '/usuarios';
   static const productoNuevo = '/productos/nuevo';
 
   static String productoDetalle(String uuid) => '/productos/$uuid';
@@ -130,6 +132,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: Rutas.pendientes,
         parentNavigatorKey: _navegadorRaiz,
         builder: (context, estado) => const PendientesPage(),
+      ),
+      GoRoute(
+        path: Rutas.usuarios,
+        parentNavigatorKey: _navegadorRaiz,
+        builder: (context, estado) => const UsuariosPage(),
       ),
 
       ShellRoute(

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../../core/config/app_config.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../core/providers/providers.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
@@ -174,6 +175,30 @@ class AjustesPage extends ConsumerWidget {
           ),
 
           _Grupo(
+            titulo: 'Cuenta',
+            hijos: [
+              ListTile(
+                leading: const Icon(Icons.password_rounded),
+                title: const Text('Cambiar mi contraseña'),
+                subtitle: const Text('Requiere conexión'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => _cambiarPassword(context, ref),
+              ),
+              // Sólo el administrador gestiona cuentas. La app no tiene registro
+              // público: es un punto de venta, no una app de consumo — quien se
+              // registrara solo tendría acceso al inventario del negocio.
+              if (ref.watch(esAdminProvider))
+                ListTile(
+                  leading: const Icon(Icons.group_outlined),
+                  title: const Text('Cuentas de acceso'),
+                  subtitle: const Text('Crear y administrar vendedores'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => context.push(Rutas.usuarios),
+                ),
+            ],
+          ),
+
+          _Grupo(
             titulo: 'Sesión',
             hijos: [
               ListTile(
@@ -239,6 +264,89 @@ class AjustesPage extends ConsumerWidget {
     api.urlBase = nueva;
     await ref.read(tokenStoreProvider).guardarUrlServidor(nueva);
     if (context.mounted) mostrarMensaje(context, 'Servidor actualizado', esExito: true);
+  }
+
+  /// Cambiar la propia contraseña.
+  ///
+  /// Exige conexión: la credencial la valida y almacena el servidor. Al
+  /// terminar, el repositorio regenera además el derivado local, para que el
+  /// desbloqueo sin red no siga aceptando la contraseña vieja.
+  Future<void> _cambiarPassword(BuildContext context, WidgetRef ref) async {
+    final actual = TextEditingController();
+    final nueva = TextEditingController();
+    final repetida = TextEditingController();
+    final formulario = GlobalKey<FormState>();
+
+    final datos = await showDialog<(String, String)>(
+      context: context,
+      builder: (dialogo) => AlertDialog(
+        title: const Text('Cambiar contraseña'),
+        content: Form(
+          key: formulario,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: actual,
+                obscureText: true,
+                autofocus: true,
+                decoration: const InputDecoration(labelText: 'Contraseña actual'),
+                validator: (v) => (v ?? '').isEmpty ? 'Obligatoria' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: nueva,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Nueva contraseña',
+                  helperText: 'Mínimo 8 caracteres',
+                ),
+                validator: (v) => (v ?? '').length < 8 ? 'Mínimo 8 caracteres' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: repetida,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Repite la nueva'),
+                validator: (v) => v != nueva.text ? 'No coinciden' : null,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogo),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (formulario.currentState?.validate() ?? false) {
+                Navigator.pop(dialogo, (actual.text, nueva.text));
+              }
+            },
+            child: const Text('Cambiar'),
+          ),
+        ],
+      ),
+    );
+
+    actual.dispose();
+    nueva.dispose();
+    repetida.dispose();
+    if (datos == null || !context.mounted) return;
+
+    try {
+      await ref.read(authRepositoryProvider).cambiarPassword(datos.$1, datos.$2);
+      if (context.mounted) {
+        mostrarMensaje(context, 'Contraseña cambiada', esExito: true);
+      }
+    } on ApiException catch (e) {
+      if (context.mounted) mostrarMensaje(context, e.mensajeUsuario, esError: true);
+    } catch (e) {
+      if (context.mounted) {
+        mostrarMensaje(context, 'No se pudo cambiar: $e', esError: true);
+      }
+    }
   }
 
   Future<void> _descargaInicial(BuildContext context, WidgetRef ref) async {
