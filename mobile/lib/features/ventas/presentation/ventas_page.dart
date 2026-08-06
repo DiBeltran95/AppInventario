@@ -10,6 +10,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/fechas.dart';
 import '../../../core/widgets/estados.dart';
 import '../../../core/widgets/sync_chip.dart';
+import '../../auth/presentation/auth_providers.dart';
 import 'ventas_providers.dart';
 
 /// Historial de ventas.
@@ -24,6 +25,7 @@ class VentasPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final filtro = ref.watch(filtroVentasProvider);
     final ventas = ref.watch(ventasProvider);
+    final esAdmin = ref.watch(esAdminProvider);
 
     return Scaffold(
       body: SafeArea(
@@ -34,30 +36,39 @@ class VentasPage extends ConsumerWidget {
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
               child: Row(
                 children: [
-                  Expanded(child: Text('Ventas', style: context.textos.headlineSmall)),
+                  Expanded(
+                    child: Text(
+                      esAdmin ? 'Ventas' : 'Mis ventas',
+                      style: context.textos.headlineSmall,
+                    ),
+                  ),
                   const SyncChip(compacto: true),
                   const SizedBox(width: 8),
                 ],
               ),
             ),
-            SizedBox(
-              height: 48,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                children: [
-                  for (final rango in RangoVentas.values) ...[
-                    ChoiceChip(
-                      label: Text(rango.etiqueta),
-                      selected: filtro.rango == rango,
-                      onSelected: (_) =>
-                          ref.read(filtroVentasProvider.notifier).porRango(rango),
-                    ),
-                    const SizedBox(width: 8),
+            // El administrador razona por periodos; el vendedor, por turnos.
+            if (esAdmin)
+              SizedBox(
+                height: 48,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  children: [
+                    for (final rango in RangoVentas.values) ...[
+                      ChoiceChip(
+                        label: Text(rango.etiqueta),
+                        selected: filtro.rango == rango,
+                        onSelected: (_) =>
+                            ref.read(filtroVentasProvider.notifier).porRango(rango),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
                   ],
-                ],
-              ),
-            ),
+                ),
+              )
+            else
+              _SelectorDia(filtro: filtro),
             Expanded(
               child: ventas.when(
                 loading: () => const SkeletonLista(),
@@ -66,12 +77,20 @@ class VentasPage extends ConsumerWidget {
                   if (lista.isEmpty) {
                     return EstadoVacio(
                       icono: Icons.receipt_long_outlined,
-                      titulo: filtro.rango == RangoVentas.hoy
-                          ? 'Aún no hay ventas hoy'
-                          : 'Sin ventas en este periodo',
-                      descripcion: 'Escanea un producto para registrar la primera.',
-                      textoAccion: 'Vender',
-                      onAccion: () => context.push('${Rutas.escanear}?modo=venta'),
+                      titulo: esAdmin
+                          ? (filtro.rango == RangoVentas.hoy
+                              ? 'Aún no hay ventas hoy'
+                              : 'Sin ventas en este periodo')
+                          : (filtro.esHoy
+                              ? 'Aún no has vendido hoy'
+                              : 'No vendiste nada ese día'),
+                      descripcion: filtro.esHoy || esAdmin
+                          ? 'Escanea un producto para registrar la primera.'
+                          : null,
+                      textoAccion: filtro.esHoy || esAdmin ? 'Vender' : null,
+                      onAccion: filtro.esHoy || esAdmin
+                          ? () => context.push('${Rutas.escanear}?modo=venta')
+                          : null,
                     );
                   }
 
@@ -84,7 +103,11 @@ class VentasPage extends ConsumerWidget {
                       _Resumen(
                         total: total,
                         cantidad: lista.where((v) => v.estado == 'COMPLETADA').length,
-                        etiqueta: filtro.rango.etiqueta.toLowerCase(),
+                        etiqueta: esAdmin
+                            ? filtro.rango.etiqueta.toLowerCase()
+                            : (filtro.esHoy
+                                ? 'de hoy'
+                                : 'del ${Fechas.formatDiaCorto(filtro.diaEfectivo)}'),
                       ),
                       Expanded(
                         child: ListView.separated(
@@ -103,6 +126,86 @@ class VentasPage extends ConsumerWidget {
         ),
       ),
     );
+  }
+}
+
+/// Navegador de día para el vendedor.
+///
+/// Un desplegable de rangos no responde a su pregunta real, que es «¿cuánto
+/// llevo hoy?» y, de vez en cuando, «¿cuánto hice ayer?». Dos flechas resuelven
+/// ambas sin abrir nada; el calendario queda para el caso raro.
+class _SelectorDia extends ConsumerWidget {
+  const _SelectorDia({required this.filtro});
+
+  final FiltroVentas filtro;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notifier = ref.read(filtroVentasProvider.notifier);
+    final dia = filtro.diaEfectivo;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Row(
+        children: [
+          IconButton(
+            onPressed: () => notifier.desplazarDia(-1),
+            icon: const Icon(Icons.chevron_left_rounded),
+            tooltip: 'Día anterior',
+          ),
+          Expanded(
+            child: InkWell(
+              onTap: () => _elegirFecha(context, ref, dia),
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Column(
+                  children: [
+                    Text(
+                      filtro.esHoy ? 'Hoy' : Fechas.formatDiaIso(dia),
+                      textAlign: TextAlign.center,
+                      style: context.textos.titleMedium,
+                    ),
+                    if (filtro.esHoy)
+                      Text(
+                        Fechas.formatDiaIso(dia),
+                        textAlign: TextAlign.center,
+                        style: context.textos.bodySmall?.copyWith(
+                          color: context.colores.onSurfaceVariant,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            // Hacia el futuro no hay nada que ver: se desactiva en «hoy» en
+            // lugar de dejar avanzar hacia días vacíos.
+            onPressed: filtro.esHoy ? null : () => notifier.desplazarDia(1),
+            icon: const Icon(Icons.chevron_right_rounded),
+            tooltip: 'Día siguiente',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _elegirFecha(BuildContext context, WidgetRef ref, String dia) async {
+    final hoy = DateTime.parse('${Fechas.hoy()}T12:00:00');
+    final elegida = await showDatePicker(
+      context: context,
+      initialDate: DateTime.parse('${dia}T12:00:00'),
+      firstDate: hoy.subtract(const Duration(days: 365)),
+      lastDate: hoy,
+      helpText: 'Ver mis ventas de',
+    );
+    if (elegida == null) return;
+
+    final iso = '${elegida.year.toString().padLeft(4, '0')}-'
+        '${elegida.month.toString().padLeft(2, '0')}-'
+        '${elegida.day.toString().padLeft(2, '0')}';
+    ref.read(filtroVentasProvider.notifier).porDia(iso);
   }
 }
 

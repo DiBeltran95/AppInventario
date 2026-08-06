@@ -83,15 +83,29 @@ class DashboardPage extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(width: 12),
+                    // La segunda acción cambia con el rol. Al vendedor,
+                    // «Entrada» sólo le daría un rechazo del enrutador: cargar
+                    // mercancía es de administración. Lo que sí necesita a mano
+                    // es consultar el catálogo —precio y existencias— porque su
+                    // barra inferior ya no lleva esa pestaña.
                     Expanded(
-                      child: _AccionPrincipal(
-                        icono: Icons.move_to_inbox_rounded,
-                        titulo: 'Entrada',
-                        subtitulo: 'Recibir mercancía',
-                        color: context.colores.secondaryContainer,
-                        alFrente: context.colores.onSecondaryContainer,
-                        onTap: () => context.push('${Rutas.escanear}?modo=entrada'),
-                      ),
+                      child: esAdmin
+                          ? _AccionPrincipal(
+                              icono: Icons.move_to_inbox_rounded,
+                              titulo: 'Entrada',
+                              subtitulo: 'Recibir mercancía',
+                              color: context.colores.secondaryContainer,
+                              alFrente: context.colores.onSecondaryContainer,
+                              onTap: () => context.push('${Rutas.escanear}?modo=entrada'),
+                            )
+                          : _AccionPrincipal(
+                              icono: Icons.inventory_2_rounded,
+                              titulo: 'Productos',
+                              subtitulo: 'Precios y existencias',
+                              color: context.colores.secondaryContainer,
+                              alFrente: context.colores.onSecondaryContainer,
+                              onTap: () => context.go(Rutas.productos),
+                            ),
                     ),
                   ],
                 ).animate().fadeIn(duration: 300.ms).slideY(begin: 0.08, curve: Curves.easeOutCubic),
@@ -421,6 +435,7 @@ class _SeccionAlertas extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final bajos = ref.watch(stockBajoProvider).value ?? const [];
     if (bajos.isEmpty) return const SizedBox.shrink();
+    final esAdmin = ref.watch(esAdminProvider);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
@@ -467,12 +482,18 @@ class _SeccionAlertas extends ConsumerWidget {
                       ' · mínimo ${bajos[i].stockMinimo.format()}',
                       style: context.textos.bodySmall,
                     ),
-                    trailing: IconButton(
-                      onPressed: () =>
-                          context.push('${Rutas.entrada}?producto=${bajos[i].uuid}'),
-                      icon: const Icon(Icons.add_circle_outline_rounded),
-                      tooltip: 'Registrar entrada',
-                    ),
+                    // Reponer es tarea de administración. Al vendedor la alerta
+                    // le sirve igual —debe saber qué se está acabando antes de
+                    // prometérselo a un cliente— pero sin un atajo que el
+                    // enrutador le va a rechazar.
+                    trailing: esAdmin
+                        ? IconButton(
+                            onPressed: () =>
+                                context.push('${Rutas.entrada}?producto=${bajos[i].uuid}'),
+                            icon: const Icon(Icons.add_circle_outline_rounded),
+                            tooltip: 'Registrar entrada',
+                          )
+                        : const Icon(Icons.chevron_right_rounded),
                   ),
                 ],
               ],
@@ -609,22 +630,38 @@ class _AccesosRapidos extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Un acceso directo que el enrutador va a rechazar es peor que no tenerlo:
+    // el usuario toca, la pantalla parpadea y vuelve al inicio sin explicación.
+    // Por eso «Movimientos» y «Nuevo producto» sólo existen para el
+    // administrador, que es quien puede entrar.
     return Card(
       child: Column(
         children: [
-          ListTile(
-            leading: const Icon(Icons.swap_vert_rounded),
-            title: const Text('Movimientos de inventario'),
-            trailing: const Icon(Icons.chevron_right_rounded),
-            onTap: () => context.push(Rutas.movimientos),
-          ),
-          const Divider(height: 1, indent: 16, endIndent: 16),
+          if (esAdmin) ...[
+            ListTile(
+              leading: const Icon(Icons.swap_vert_rounded),
+              title: const Text('Movimientos de inventario'),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => context.push(Rutas.movimientos),
+            ),
+            const Divider(height: 1, indent: 16, endIndent: 16),
+          ],
           ListTile(
             leading: const Icon(Icons.qr_code_scanner_rounded),
             title: const Text('Consultar un producto'),
+            subtitle: const Text('Escanear para ver precio y existencias'),
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () => context.push('${Rutas.escanear}?modo=consulta'),
           ),
+          if (!esAdmin) ...[
+            const Divider(height: 1, indent: 16, endIndent: 16),
+            ListTile(
+              leading: const Icon(Icons.receipt_long_outlined),
+              title: const Text('Mis ventas de hoy'),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => context.go(Rutas.ventas),
+            ),
+          ],
           if (esAdmin) ...[
             const Divider(height: 1, indent: 16, endIndent: 16),
             ListTile(

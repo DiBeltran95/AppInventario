@@ -19,67 +19,98 @@ class AppShell extends ConsumerWidget {
 
   /// Destinos según el rol.
   ///
-  /// El vendedor no ve «Reportes»: ahí viven los márgenes, los costos y la
-  /// valorización del inventario, que son datos del negocio y no de su trabajo.
-  /// Quitar la pestaña entera —en lugar de vaciarla— también le simplifica la
-  /// vida: tres destinos en vez de cuatro para alguien que sólo despacha.
-  static List<({String ruta, IconData icono, IconData activo, String etiqueta})> _destinosDe(
-    bool esAdmin,
-  ) =>
-      [
-        (ruta: Rutas.dashboard, icono: Icons.dashboard_outlined, activo: Icons.dashboard_rounded, etiqueta: 'Inicio'),
-        (ruta: Rutas.productos, icono: Icons.inventory_2_outlined, activo: Icons.inventory_2_rounded, etiqueta: 'Productos'),
-        (ruta: Rutas.ventas, icono: Icons.receipt_long_outlined, activo: Icons.receipt_long_rounded, etiqueta: 'Ventas'),
-        if (esAdmin)
-          (ruta: Rutas.reportes, icono: Icons.insights_outlined, activo: Icons.insights_rounded, etiqueta: 'Reportes'),
-      ];
+  /// El vendedor sólo tiene **Inicio y Ventas**. No es una versión recortada
+  /// por recortar: su trabajo cabe en el botón de escanear y en revisar lo que
+  /// lleva vendido. «Reportes» guarda márgenes y costos, que son datos del
+  /// negocio y no de su turno; y el catálogo, que sí necesita consultar, lo
+  /// alcanza desde el acceso directo del inicio.
+  ///
+  /// Que el número de destinos sea **par** en ambos roles no es casualidad: el
+  /// hueco del botón central sólo queda centrado si a cada lado hay los mismos.
+  static List<DestinoNav> destinosDe(bool esAdmin) => esAdmin
+      ? const [
+          DestinoNav(Rutas.dashboard, Icons.dashboard_outlined, Icons.dashboard_rounded, 'Inicio'),
+          DestinoNav(Rutas.productos, Icons.inventory_2_outlined, Icons.inventory_2_rounded, 'Productos'),
+          DestinoNav(Rutas.ventas, Icons.receipt_long_outlined, Icons.receipt_long_rounded, 'Ventas'),
+          DestinoNav(Rutas.reportes, Icons.insights_outlined, Icons.insights_rounded, 'Reportes'),
+        ]
+      : const [
+          DestinoNav(Rutas.dashboard, Icons.dashboard_outlined, Icons.dashboard_rounded, 'Inicio'),
+          DestinoNav(Rutas.ventas, Icons.receipt_long_outlined, Icons.receipt_long_rounded, 'Ventas'),
+        ];
 
-  int _indice(
-    String ubicacion,
-    List<({String ruta, IconData icono, IconData activo, String etiqueta})> destinos,
-  ) {
-    for (var i = destinos.length - 1; i >= 0; i--) {
-      final ruta = destinos[i].ruta;
-      if (ruta == Rutas.dashboard ? ubicacion == ruta : ubicacion.startsWith(ruta)) {
-        return i;
-      }
-    }
-    return 0;
+  /// Pestañas tal como las recibe `NavigationBar`, con el hueco del botón
+  /// central incluido (`null`).
+  ///
+  /// Es público para poder probarlo: aquí vivía el fallo que dejaba «Reportes»
+  /// y «Ventas» sin respuesta, y no se ve a simple vista.
+  static List<DestinoNav?> ranurasDe(bool esAdmin) {
+    final destinos = destinosDe(esAdmin);
+    return <DestinoNav?>[...destinos]..insert(destinos.length ~/ 2, null);
+  }
+
+  /// Pestaña que corresponde a una ubicación. Nunca devuelve el hueco.
+  static int indiceDe(String ubicacion, List<DestinoNav?> ranuras) {
+    // De derecha a izquierda: «Inicio» es prefijo de todo y con una búsqueda
+    // normal se quedaría siempre encendido.
+    final i = ranuras.lastIndexWhere((d) => d != null && _coincide(ubicacion, d.ruta));
+    return i >= 0 ? i : 0;
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final ubicacion = GoRouterState.of(context).matchedLocation;
-    final destinos = _destinosDe(ref.watch(esAdminProvider));
-    final indice = _indice(ubicacion, destinos);
     final articulos = ref.watch(carritoProvider).articulos;
+
+    // El hueco del botón central es una pestaña más para `NavigationBar`, así
+    // que la lista pintada NO coincide con la de destinos. Antes se mezclaban
+    // ambos índices: al tocar «Ventas» se navegaba a «Reportes» y «Reportes»
+    // se salía del rango, así que no hacía nada.
+    final ranuras = ranurasDe(ref.watch(esAdminProvider));
+    final seleccionado = indiceDe(ubicacion, ranuras);
 
     return Scaffold(
       body: child,
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       floatingActionButton: _BotonEscanear(articulosEnCarrito: articulos),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: indice,
-        onDestinationSelected: (i) => context.go(destinos[i].ruta),
+        selectedIndex: seleccionado,
+        onDestinationSelected: (i) {
+          final destino = ranuras[i];
+          if (destino != null) context.go(destino.ruta);
+        },
         destinations: [
-          for (var i = 0; i < destinos.length; i++) ...[
-            NavigationDestination(
-              icon: Icon(destinos[i].icono),
-              selectedIcon: Icon(destinos[i].activo),
-              label: destinos[i].etiqueta,
-            ),
-            // Hueco central para que el FAB no tape ninguna pestaña.
-            if (i == 1)
+          for (final ranura in ranuras)
+            if (ranura == null)
               const NavigationDestination(
                 icon: SizedBox(width: 48),
                 label: '',
                 enabled: false,
+              )
+            else
+              NavigationDestination(
+                icon: Icon(ranura.icono),
+                selectedIcon: Icon(ranura.activo),
+                label: ranura.etiqueta,
               ),
-          ],
         ],
       ),
     );
   }
+
+  /// «Inicio» sólo se activa con la raíz exacta; el resto, también con sus
+  /// subrutas (`/ventas/<uuid>` mantiene encendida la pestaña de Ventas).
+  static bool _coincide(String ubicacion, String ruta) =>
+      ruta == Rutas.dashboard ? ubicacion == ruta : ubicacion.startsWith(ruta);
+}
+
+class DestinoNav {
+  const DestinoNav(this.ruta, this.icono, this.activo, this.etiqueta);
+
+  final String ruta;
+  final IconData icono;
+  final IconData activo;
+  final String etiqueta;
 }
 
 class _BotonEscanear extends StatelessWidget {
