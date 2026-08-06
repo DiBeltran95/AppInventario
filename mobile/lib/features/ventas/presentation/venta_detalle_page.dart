@@ -311,14 +311,25 @@ class _BannerAnulada extends StatelessWidget {
   }
 }
 
-class _Cabecera extends StatelessWidget {
+class _Cabecera extends ConsumerWidget {
   const _Cabecera({required this.venta});
 
   final VentaCompleta venta;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final v = venta.venta;
+
+    // Quién vendió: dato de control del negocio, sólo para el administrador.
+    // Se resuelve contra la tabla local de usuarios, así que funciona sin red.
+    //
+    // Va como `if` y no como ternario a propósito: `.value?[clave]` dentro de
+    // una rama condicional se parsea como un `? [lista] :` anidado y el
+    // compilador se pierde.
+    String? vendedor;
+    if (ref.watch(esAdminProvider) && v.usuarioUuid != null) {
+      vendedor = ref.watch(nombresUsuariosProvider).value?[v.usuarioUuid!];
+    }
 
     return Card(
       child: Padding(
@@ -371,6 +382,30 @@ class _Cabecera extends StatelessWidget {
                   ),
               ],
             ),
+            if (vendedor != null) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Icon(
+                    Icons.badge_outlined,
+                    size: 16,
+                    color: context.colores.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 8),
+                  Text('Vendió: ', style: context.textos.bodySmall?.copyWith(
+                    color: context.colores.onSurfaceVariant,
+                  )),
+                  Flexible(
+                    child: Text(
+                      vendedor,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.textos.bodyMedium,
+                    ),
+                  ),
+                ],
+              ),
+            ],
             if (v.clienteNombre != null) ...[
               const SizedBox(height: 10),
               Row(

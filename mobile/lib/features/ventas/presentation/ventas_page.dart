@@ -114,7 +114,8 @@ class VentasPage extends ConsumerWidget {
                           padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
                           itemCount: lista.length,
                           separatorBuilder: (_, _) => const SizedBox(height: 8),
-                          itemBuilder: (context, i) => _FilaVenta(venta: lista[i]),
+                          itemBuilder: (context, i) =>
+                              _FilaVenta(venta: lista[i], mostrarVendedor: esAdmin),
                         ),
                       ),
                     ],
@@ -274,15 +275,30 @@ class _Resumen extends ConsumerWidget {
   }
 }
 
-class _FilaVenta extends StatelessWidget {
-  const _FilaVenta({required this.venta});
+class _FilaVenta extends ConsumerWidget {
+  const _FilaVenta({required this.venta, required this.mostrarVendedor});
 
   final Venta venta;
 
+  /// Sólo el administrador ve quién vendió. Al vendedor no le aporta nada: la
+  /// lista ya está filtrada a las suyas, y su propio nombre en cada fila sería
+  /// ruido.
+  final bool mostrarVendedor;
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final anulada = venta.estado == 'ANULADA';
     final pendiente = venta.sincronizadaEn == null;
+
+    // Una venta antigua puede referirse a un empleado dado de baja, y una
+    // recién sincronizada puede llegar antes que su usuario: en ambos casos se
+    // dice «Sin asignar» en vez de dejar la línea coja.
+    final vendedor = mostrarVendedor
+        ? (venta.usuarioUuid == null
+            ? 'Sin asignar'
+            : ref.watch(nombresUsuariosProvider).value?[venta.usuarioUuid!] ??
+                'Sin asignar')
+        : null;
 
     return Card(
       child: ListTile(
@@ -317,6 +333,7 @@ class _FilaVenta extends StatelessWidget {
         subtitle: Text(
           [
             Fechas.formatHora(venta.fecha),
+            ?vendedor,
             if (venta.clienteNombre != null) venta.clienteNombre!,
             _metodo(venta.metodoPago),
           ].join(' · '),

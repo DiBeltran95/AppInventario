@@ -248,14 +248,20 @@ class _Contenido extends ConsumerWidget {
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
           child: Row(
             children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () => context.push('${Rutas.entrada}?producto=${item.uuid}'),
-                  icon: const Icon(Icons.move_to_inbox_rounded),
-                  label: const Text('Entrada'),
+              // Cargar mercancía es de administración. Al vendedor el botón
+              // sólo le daría un rechazo del enrutador, así que no aparece y
+              // «Vender» ocupa todo el ancho: es la única acción que le toca
+              // desde aquí, y así queda bajo el pulgar.
+              if (esAdmin) ...[
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => context.push('${Rutas.entrada}?producto=${item.uuid}'),
+                    icon: const Icon(Icons.move_to_inbox_rounded),
+                    label: const Text('Entrada'),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
+                const SizedBox(width: 12),
+              ],
               Expanded(
                 child: FilledButton.icon(
                   onPressed: () {

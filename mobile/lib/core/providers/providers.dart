@@ -123,6 +123,19 @@ final nombreNegocioProvider = Provider<String>((ref) {
       );
 });
 
+/// Nombre de cada usuario, indexado por UUID.
+///
+/// Sale de SQLite —los usuarios llegan en el pull, igual que el catálogo—, así
+/// que el historial sigue diciendo quién hizo cada venta aunque no haya red.
+/// Es una tabla pequeña: se lee entera una vez y la lista de ventas la consulta
+/// en memoria, en lugar de hacer un join por fila.
+final nombresUsuariosProvider = StreamProvider<Map<String, String>>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  return db.select(db.usuarios).watch().map(
+        (filas) => {for (final u in filas) u.uuid: u.nombre},
+      );
+});
+
 /// Estado del dispositivo: prefijo de folio, último sync, usuario activo.
 final estadoAppProvider = StreamProvider<EstadoAppData?>((ref) {
   final db = ref.watch(appDatabaseProvider);

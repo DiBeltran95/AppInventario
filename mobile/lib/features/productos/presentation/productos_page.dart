@@ -205,22 +205,34 @@ class _ProductosPageState extends ConsumerState<ProductosPage> {
             ),
             const Divider(height: 1),
             ListTile(
-              leading: const Icon(Icons.move_to_inbox_rounded),
-              title: const Text('Registrar entrada'),
+              leading: const Icon(Icons.visibility_outlined),
+              title: const Text('Ver ficha'),
               onTap: () {
                 Navigator.pop(hoja);
-                context.push('${Rutas.entrada}?producto=${item.uuid}');
+                context.push(Rutas.productoDetalle(item.uuid));
               },
             ),
-            ListTile(
-              leading: const Icon(Icons.swap_vert_rounded),
-              title: const Text('Ver movimientos'),
-              onTap: () {
-                Navigator.pop(hoja);
-                context.push('${Rutas.movimientos}?producto=${item.uuid}');
-              },
-            ),
-            if (esAdmin)
+            // Entrada, movimientos y edición tocan el inventario: son de
+            // administración. Al vendedor le rebotarían contra el enrutador,
+            // y un atajo que parpadea y devuelve al inicio confunde más que
+            // no estar.
+            if (esAdmin) ...[
+              ListTile(
+                leading: const Icon(Icons.move_to_inbox_rounded),
+                title: const Text('Registrar entrada'),
+                onTap: () {
+                  Navigator.pop(hoja);
+                  context.push('${Rutas.entrada}?producto=${item.uuid}');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.swap_vert_rounded),
+                title: const Text('Ver movimientos'),
+                onTap: () {
+                  Navigator.pop(hoja);
+                  context.push('${Rutas.movimientos}?producto=${item.uuid}');
+                },
+              ),
               ListTile(
                 leading: const Icon(Icons.edit_outlined),
                 title: const Text('Editar'),
@@ -229,6 +241,7 @@ class _ProductosPageState extends ConsumerState<ProductosPage> {
                   context.push(Rutas.productoEditar(item.uuid));
                 },
               ),
+            ],
           ],
         ),
       ),
