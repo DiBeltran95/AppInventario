@@ -96,15 +96,48 @@ void volverAlEscaner(BuildContext context) {
   }
 }
 
+/// Puente entre Riverpod y go_router.
+///
+/// Existe para NO tener que reconstruir el `GoRouter` cuando cambia la sesión.
+/// `refreshListenable` hace que go_router vuelva a evaluar el `redirect`
+/// manteniendo la misma instancia y el mismo `Navigator`.
+class _RefrescoSesion extends ChangeNotifier {
+  _RefrescoSesion(Ref ref) {
+    ref.listen(sesionProvider, (_, _) => notifyListeners());
+  }
+}
+
 final routerProvider = Provider<GoRouter>((ref) {
-  final sesion = ref.watch(sesionProvider);
+  // ¡Ojo! Aquí NO se hace `ref.watch(sesionProvider)`.
+  //
+  // Hacerlo reconstruía el GoRouter entero en cada cambio de estado de la
+  // sesión —y al iniciar sesión hay dos seguidos: `loading` y luego `data`—.
+  // Cada instancia nueva remonta el Navigator completo, con dos efectos que se
+  // veían en la app:
+  //
+  //   · Tras iniciar sesión, el inicio aparecía vacío hasta navegar a otra
+  //     pestaña y volver, porque el árbol se remontaba a mitad de la carga.
+  //   · La pestaña «Reportes» no respondía: el `redirect` capturaba la sesión
+  //     POR VALOR al construirse, así que una instancia antigua seguía viendo
+  //     `sesion == null`, concluía que el usuario no era administrador y
+  //     devolvía al inicio en silencio.
+  //
+  // Con `refreshListenable` la instancia es única y el `redirect` lee la sesión
+  // fresca en cada evaluación.
+  final refresco = _RefrescoSesion(ref);
+  ref.onDispose(refresco.dispose);
 
   return GoRouter(
     navigatorKey: _navegadorRaiz,
     initialLocation: Rutas.dashboard,
     debugLogDiagnostics: false,
     observers: [observadorRutas],
+    refreshListenable: refresco,
     redirect: (context, estado) {
+      // Se lee AQUÍ, no en el cuerpo del provider: así el valor es el actual en
+      // el momento de decidir, no el que hubiera cuando se creó el router.
+      final sesion = ref.read(sesionProvider);
+
       // Mientras se resuelve la sesión guardada no se redirige: mover al
       // usuario y devolverlo produce un parpadeo desagradable al arrancar.
       if (sesion.isLoading) return null;

@@ -107,151 +107,187 @@ class _HojaCobroState extends State<HojaCobro> {
     final falta = _montoRecibido.esCero
         ? const Money.cero()
         : (_montoRecibido < widget.total
-            ? widget.total - _montoRecibido
-            : const Money.cero());
+              ? widget.total - _montoRecibido
+              : const Money.cero());
 
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+        // Tocar cualquier zona muerta de la hoja cierra el teclado. Antes no
+        // había forma de bajarlo: había que desplazarse a ciegas buscando el
+        // botón de confirmar, con el cliente esperando.
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => FocusScope.of(context).unfocus(),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Salida explícita. El asa de arrastre no basta: con la hoja a
-              // pantalla casi completa y un scroll dentro, el gesto de bajar se
-              // lo come el scroll, y con el teclado abierto el asa queda fuera
-              // de alcance. Un botón visible siempre funciona.
-              Row(
-                children: [
-                  IconButton(
-                    onPressed: () => Navigator.pop(context, SalidaCobro.volverAlCarrito),
-                    icon: const Icon(Icons.arrow_back_rounded),
-                    tooltip: 'Volver al carrito',
-                  ),
-                  Expanded(
-                    child: Text(
-                      'Cobrar',
-                      textAlign: TextAlign.center,
-                      style: context.textos.titleMedium,
-                    ),
-                  ),
-                  // Reserva el ancho del IconButton para que el título quede
-                  // centrado de verdad.
-                  const SizedBox(width: 48),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Center(
-                child: Column(
-                  children: [
-                    Text(
-                      'Total a cobrar',
-                      style: context.textos.labelLarge?.copyWith(
-                        color: context.colores.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      widget.total.format(),
-                      style: context.textos.displaySmall
-                          ?.copyWith(color: context.colores.primary),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              SegmentedButton<String>(
-                segments: [
-                  for (final m in _metodos)
-                    ButtonSegment(
-                      value: m.codigo,
-                      label: Text(m.etiqueta),
-                      icon: Icon(m.icono),
-                    ),
-                ],
-                selected: {_metodo},
-                onSelectionChanged: (s) => setState(() => _metodo = s.first),
-              ),
-
-              if (esEfectivo) ...[
-                const SizedBox(height: 20),
-                TextField(
-                  controller: _recibido,
-                  autofocus: true,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  onChanged: (_) => setState(() {}),
-                  style: context.textos.headlineSmall,
-                  decoration: const InputDecoration(
-                    labelText: 'Con cuánto paga',
-                    prefixText: r'$ ',
-                    helperText: 'Déjalo vacío si paga justo',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final sugerencia in _sugerencias)
-                      ActionChip(
-                        label: Text(sugerencia.format()),
-                        onPressed: () {
-                          _recibido.text = sugerencia.formatSinSimbolo();
-                          HapticFeedback.selectionClick();
-                          setState(() {});
-                        },
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 200),
-                  child: falta.esPositivo
-                      ? _Resaltado(
-                          key: const ValueKey('falta'),
-                          etiqueta: 'Falta',
-                          valor: falta,
-                          color: context.dominio.peligro,
-                          fondo: context.dominio.peligroContenedor,
-                        )
-                      : _Resaltado(
-                          key: const ValueKey('cambio'),
-                          etiqueta: 'Cambio a devolver',
-                          valor: cambio,
-                          color: context.dominio.exito,
-                          fondo: context.dominio.exitoContenedor,
-                        ),
-                ),
-              ],
-
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: _puedeCobrar
-                    ? () => Navigator.pop(
-                          context,
-                          ResultadoCobro(
-                            metodo: _metodo,
-                            recibido: esEfectivo && !_montoRecibido.esCero
-                                ? _montoRecibido
-                                : null,
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Salida explícita. El asa de arrastre no basta: con la hoja a
+                      // pantalla casi completa y un scroll dentro, el gesto de bajar se
+                      // lo come el scroll, y con el teclado abierto el asa queda fuera
+                      // de alcance. Un botón visible siempre funciona.
+                      Row(
+                        children: [
+                          IconButton(
+                            onPressed: () =>
+                                Navigator.pop(context, SalidaCobro.volverAlCarrito),
+                            icon: const Icon(Icons.arrow_back_rounded),
+                            tooltip: 'Volver al carrito',
                           ),
-                        )
-                    : null,
-                icon: const Icon(Icons.check_circle_outline_rounded),
-                label: const Text('Confirmar venta'),
-                style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56)),
+                          Expanded(
+                            child: Text(
+                              'Cobrar',
+                              textAlign: TextAlign.center,
+                              style: context.textos.titleMedium,
+                            ),
+                          ),
+                          // Reserva el ancho del IconButton para que el título quede
+                          // centrado de verdad.
+                          const SizedBox(width: 48),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Center(
+                        child: Column(
+                          children: [
+                            Text(
+                              'Total a cobrar',
+                              style: context.textos.labelLarge?.copyWith(
+                                color: context.colores.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              widget.total.format(),
+                              style: context.textos.displaySmall?.copyWith(
+                                color: context.colores.primary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      SegmentedButton<String>(
+                        segments: [
+                          for (final m in _metodos)
+                            ButtonSegment(
+                              value: m.codigo,
+                              label: Text(m.etiqueta),
+                              icon: Icon(m.icono),
+                            ),
+                        ],
+                        selected: {_metodo},
+                        onSelectionChanged: (s) => setState(() => _metodo = s.first),
+                      ),
+
+                      if (esEfectivo) ...[
+                        const SizedBox(height: 20),
+                        TextField(
+                          controller: _recibido,
+                          autofocus: true,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          // El teclado numérico de Android no trae tecla de aceptar por
+                          // sí solo; con esto aparece «Listo» y se puede cerrar sin
+                          // salir del campo.
+                          textInputAction: TextInputAction.done,
+                          onSubmitted: (_) => FocusScope.of(context).unfocus(),
+                          onChanged: (_) => setState(() {}),
+                          style: context.textos.headlineSmall,
+                          decoration: const InputDecoration(
+                            labelText: 'Con cuánto paga',
+                            prefixText: r'$ ',
+                            helperText: 'Déjalo vacío si paga justo',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final sugerencia in _sugerencias)
+                              ActionChip(
+                                label: Text(sugerencia.format()),
+                                onPressed: () {
+                                  _recibido.text = sugerencia.formatSinSimbolo();
+                                  HapticFeedback.selectionClick();
+                                  setState(() {});
+                                },
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 200),
+                          child: falta.esPositivo
+                              ? _Resaltado(
+                                  key: const ValueKey('falta'),
+                                  etiqueta: 'Falta',
+                                  valor: falta,
+                                  color: context.dominio.peligro,
+                                  fondo: context.dominio.peligroContenedor,
+                                )
+                              : _Resaltado(
+                                  key: const ValueKey('cambio'),
+                                  etiqueta: 'Cambio a devolver',
+                                  valor: cambio,
+                                  color: context.dominio.exito,
+                                  fondo: context.dominio.exitoContenedor,
+                                ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
-              const SizedBox(height: 10),
-              // El caso real que faltaba: ya estás cobrando y el cliente añade
-              // algo más. Antes había que cancelar el cobro a ciegas.
-              OutlinedButton.icon(
-                onPressed: () => Navigator.pop(context, SalidaCobro.seguirAgregando),
-                icon: const Icon(Icons.add_shopping_cart_rounded, size: 18),
-                label: const Text('Agregar otro producto'),
-                style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+
+              // Botonera FIJA. Al vivir fuera del scroll, queda siempre visible
+              // justo encima del teclado: confirmar deja de exigir un gesto de
+              // búsqueda.
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: _puedeCobrar
+                          ? () => Navigator.pop(
+                              context,
+                              ResultadoCobro(
+                                metodo: _metodo,
+                                recibido: esEfectivo && !_montoRecibido.esCero
+                                    ? _montoRecibido
+                                    : null,
+                              ),
+                            )
+                          : null,
+                      icon: const Icon(Icons.check_circle_outline_rounded),
+                      label: const Text('Confirmar venta'),
+                      style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56)),
+                    ),
+                    const SizedBox(height: 10),
+                    // El caso real que faltaba: ya estás cobrando y el cliente añade
+                    // algo más. Antes había que cancelar el cobro a ciegas.
+                    OutlinedButton.icon(
+                      onPressed: () => Navigator.pop(context, SalidaCobro.seguirAgregando),
+                      icon: const Icon(Icons.add_shopping_cart_rounded, size: 18),
+                      label: const Text('Agregar otro producto'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(48),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -284,10 +320,7 @@ class _Resaltado extends StatelessWidget {
         children: [
           Text(etiqueta, style: context.textos.titleSmall?.copyWith(color: color)),
           const Spacer(),
-          Text(
-            valor.format(),
-            style: context.textos.headlineSmall?.copyWith(color: color),
-          ),
+          Text(valor.format(), style: context.textos.headlineSmall?.copyWith(color: color)),
         ],
       ),
     );
