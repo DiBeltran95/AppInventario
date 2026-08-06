@@ -133,31 +133,42 @@ flutter test      # aritmética monetaria del cliente
 No hace falta tener el SDK de Android ni un Mac: el workflow
 [`.github/workflows/build.yml`](.github/workflows/build.yml) lo hace en la nube.
 
-El **APK se compila solo** en cada push a `main`. El **`.ipa` hay que pedirlo**:
-*Actions → Build → Run workflow* y marcar la casilla «Compilar también iOS».
+**Actions → Build → Run workflow**, o automáticamente en cada push a `main`.
+
+Primero se verifica y sólo después se compila:
+
+```
+verificar (análisis + pruebas)  ──►  APK Android
+                                └►  IPA iOS
+```
+
+Si el análisis o las pruebas fallan, no se compila nada: un APK que no pasa sus propias pruebas no
+sirve, y menos aún gastar en él un runner de macOS.
 
 Al terminar, los binarios quedan en **Artifacts**, al final de la página del run:
 
-| Artefacto | Cuándo se genera | Se instala |
+| Artefacto | Qué contiene | Se instala |
 |---|---|---|
-| `android-apk` | en cada push | ✅ directamente en el teléfono |
-| `android-aab` | en cada push | sólo para subir a Play Store |
-| `ios-ipa-sin-firmar` | sólo a petición | ❌ requiere firma previa |
-
-Los tres trabajos son **independientes**: cada uno se verifica a sí mismo y publica lo suyo, así
-que un tropiezo de iOS no puede dejarte sin APK.
+| `android-apk` | APK universal + uno por arquitectura | ✅ directamente en el teléfono |
+| `android-aab` | App Bundle | sólo para subir a Play Store |
+| `ios-ipa-sin-firmar` | `.ipa` **sin firmar** | ❌ requiere firma previa |
 
 ### Cuando los trabajos salen «cancelled» sin ejecutar ningún paso
 
-Si en la página del run los trabajos aparecen cancelados y **no tienen ni un paso** dentro, no es
-un fallo de compilación: nunca consiguieron un runner. Mira **Settings → Billing**.
+Si en la página del run los trabajos aparecen cancelados y **no tienen ni un paso** dentro, no es un
+fallo de compilación: nunca consiguieron un runner. Se reconoce porque el trabajo no muestra
+«Set up job» y la ejecución entera muere a los ~15 minutos.
 
-Los runners de macOS se facturan a **10 minutos por cada minuto real**. En un repositorio privado
-eso agota la cuota mensual gratuita en pocas compilaciones de iOS, y al agotarse GitHub cancela
-todas las ejecuciones de golpe —también las de Android—. En un repositorio **público** los runners
-estándar son gratis e ilimitados.
+Dos causas, en este orden:
 
-Por eso iOS ya no se compila en cada push: su coste no puede costarte el APK.
+1. **Una incidencia de GitHub.** Míralo en [githubstatus.com](https://www.githubstatus.com). Cuando
+   Actions está caído, los trabajos quedan en cola y se cancelan solos. No hay nada que arreglar en
+   el repositorio: se relanza cuando se restablezca.
+2. **Cuota de Actions agotada** (*Settings → Billing*). En repositorios privados hay minutos
+   mensuales, y macOS consume **10 por cada minuto real**; al agotarlos GitHub cancela todas las
+   ejecuciones. En repositorios **públicos** los runners estándar son gratis e ilimitados.
+
+En ninguno de los dos casos ayuda tocar el workflow.
 
 ### Sobre la firma
 
