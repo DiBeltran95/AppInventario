@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/config/app_config.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/motion.dart';
 
 class InventarioApp extends ConsumerWidget {
   const InventarioApp({super.key});
@@ -28,6 +30,12 @@ class InventarioApp extends ConsumerWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       builder: (context, hijo) {
+        // Si el usuario activó «Reducir movimiento» en Android, flutter_animate
+        // pasa a duración cero en TODA la app. Es una línea aquí en lugar de una
+        // comprobación en cada una de las animaciones.
+        Animate.defaultDuration =
+            MediaQuery.disableAnimationsOf(context) ? Duration.zero : Motion.media;
+
         // Se acota el escalado tipográfico: por encima de 1,3 la fila del
         // carrito deja de caber y la app se vuelve inusable justo para quien
         // más necesita el texto grande.

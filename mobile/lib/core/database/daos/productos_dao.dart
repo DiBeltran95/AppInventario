@@ -158,6 +158,79 @@ class ProductosDao {
   Stream<List<ProductoConCategoria>> observarStockBajo({int limite = 20}) =>
       observar(filtroStock: FiltroStock.bajo, orden: OrdenProductos.stockAsc, limite: limite);
 
+  /// Productos más vendidos en los últimos [dias], para la rejilla de venta
+  /// rápida.
+  ///
+  /// En una tienda con un catálogo pequeño, unas dos docenas de productos
+  /// concentran la mayoría de las ventas. Tocarlos en una rejilla es más rápido
+  /// que apuntar la cámara: no hay que enfocar, ni buscar buena luz, ni pelearse
+  /// con una etiqueta arrugada.
+  ///
+  /// Los que aún no se han vendido nunca se incluyen al final (ordenados por
+  /// nombre) para que la rejilla no aparezca medio vacía en una tienda recién
+  /// configurada.
+  Stream<List<ProductoConCategoria>> observarFrecuentes({
+    int limite = 24,
+    int dias = 30,
+  }) {
+    final desde = _diaHace(dias);
+
+    return db
+        .customSelect(
+          '''
+          SELECT p.uuid,
+                 -- El CASE es imprescindible: al filtrar la venta en el ON del
+                 -- LEFT JOIN, las líneas de una venta ANULADA siguen llegando
+                 -- (con v en NULL) y `SUM(d.cantidad)` las contaría igual. Una
+                 -- venta anulada no puede empujar un producto al top.
+                 COALESCE(SUM(CASE WHEN v.uuid IS NOT NULL THEN d.cantidad ELSE 0 END), 0)
+                   AS vendido
+            FROM productos p
+            LEFT JOIN venta_detalles d ON d.producto_uuid = p.uuid
+            LEFT JOIN ventas v
+                   ON v.uuid = d.venta_uuid
+                  AND v.estado = 'COMPLETADA'
+                  AND v.deleted_at IS NULL
+                  AND v.fecha_local >= ?
+           WHERE p.deleted_at IS NULL AND p.activo = 1
+           GROUP BY p.uuid
+           ORDER BY vendido DESC, p.nombre ASC
+           LIMIT ?
+          ''',
+          variables: [Variable<String>(desde), Variable<int>(limite)],
+          readsFrom: {db.productos, db.ventaDetalles, db.ventas},
+        )
+        .watch()
+        .asyncMap((filas) async {
+      final orden = [for (final f in filas) f.read<String>('uuid')];
+      if (orden.isEmpty) return const <ProductoConCategoria>[];
+
+      final resultado = await (db.select(db.productos).join([
+        leftOuterJoin(db.categorias, db.categorias.uuid.equalsExp(db.productos.categoriaUuid)),
+      ])
+            ..where(db.productos.uuid.isIn(orden)))
+          .get();
+
+      final porUuid = {
+        for (final f in resultado)
+          f.readTable(db.productos).uuid: ProductoConCategoria(
+            producto: f.readTable(db.productos),
+            categoria: f.readTableOrNull(db.categorias),
+          ),
+      };
+
+      // Se respeta el orden del ranking: `IN (...)` no lo garantiza.
+      return [for (final uuid in orden) if (porUuid[uuid] != null) porUuid[uuid]!];
+    });
+  }
+
+  static String _diaHace(int dias) {
+    final d = DateTime.now().toUtc().subtract(Duration(days: dias));
+    return '${d.year.toString().padLeft(4, '0')}-'
+        '${d.month.toString().padLeft(2, '0')}-'
+        '${d.day.toString().padLeft(2, '0')}';
+  }
+
   Future<List<Categoria>> categorias() => (db.select(db.categorias)
         ..where((t) => t.deletedAt.isNull())
         ..orderBy([(t) => OrderingTerm.asc(t.orden), (t) => OrderingTerm.asc(t.nombre)]))

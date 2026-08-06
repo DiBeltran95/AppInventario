@@ -16,6 +16,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../ventas/presentation/carrito_provider.dart';
 import '../domain/modo_escaner.dart';
 import 'marco_escaner.dart';
+import 'panel_venta_rapida.dart';
 
 /// Pantalla de escaneo.
 ///
@@ -225,35 +226,102 @@ class _ScannerPageState extends ConsumerState<ScannerPage> {
             onCerrar: () => context.pop(),
           ),
 
-          if (_resultado != null)
-            Positioned(
-              left: 16,
-              right: 16,
-              bottom: esVenta && carrito.lineas.isNotEmpty ? 112 : 24,
-              child: _TarjetaResultado(
-                resultado: _resultado!,
-                modo: widget.modo,
-                onDeshacer: esVenta ? _deshacer : null,
-                onCrear: () => _crearProductoCon(_resultado!.codigo),
-                onCerrar: () {
-                  _temporizadorResultado?.cancel();
-                  setState(() => _resultado = null);
-                },
-              ),
-            ),
+          // Todo lo inferior se apila en una sola columna. Antes cada pieza
+          // llevaba su propio `bottom:` calculado a ojo y bastaba con que la
+          // barra del carrito creciera un poco para que se solaparan.
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 24,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_resultado != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _TarjetaResultado(
+                      resultado: _resultado!,
+                      modo: widget.modo,
+                      onDeshacer: esVenta ? _deshacer : null,
+                      onCrear: () => _crearProductoCon(_resultado!.codigo),
+                      onCerrar: () {
+                        _temporizadorResultado?.cancel();
+                        setState(() => _resultado = null);
+                      },
+                    ),
+                  ),
 
-          if (esVenta && carrito.lineas.isNotEmpty)
-            Positioned(
-              left: 16,
-              right: 16,
-              bottom: 24,
-              child: _BarraCarrito(
-                articulos: carrito.articulos,
-                total: carrito.total,
-                onCobrar: () => context.push(Rutas.carrito),
-              ),
+                if (esVenta) ...[
+                  _BotonVentaRapida(onTap: _abrirVentaRapida),
+                  const SizedBox(height: 12),
+                ],
+
+                if (esVenta && carrito.lineas.isNotEmpty)
+                  _BarraCarrito(
+                    articulos: carrito.articulos,
+                    total: carrito.total,
+                    onCobrar: () => context.push(Rutas.carrito),
+                  ),
+              ],
             ),
+          ),
         ],
+      ),
+    );
+  }
+
+  /// Abre la rejilla de venta rápida y pausa la cámara mientras está encima.
+  ///
+  /// Sin pausarla, la cámara seguiría detectando códigos tras la hoja y
+  /// añadiría productos que el usuario no ve.
+  Future<void> _abrirVentaRapida() async {
+    await _controlador.stop();
+    if (!mounted) return;
+    await PanelVentaRapida.mostrar(context);
+    if (!mounted) return;
+    await _controlador.start();
+  }
+}
+
+/// Acceso a la rejilla de venta rápida.
+///
+/// Con un catálogo pequeño, tocar suele ser más rápido que escanear, y siempre
+/// es la salida cuando una etiqueta no se deja leer. Por eso está en la zona
+/// del pulgar y no escondido en un menú.
+class _BotonVentaRapida extends StatelessWidget {
+  const _BotonVentaRapida({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Material(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(24),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.grid_view_rounded, size: 18, color: Colors.white),
+                SizedBox(width: 8),
+                Text(
+                  'Tocar para vender',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

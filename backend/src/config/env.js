@@ -57,8 +57,8 @@ const schema = z.object({
  * En un archivo `.env`, dotenv ya interpreta `CLAVE='valor'` y entrega `valor`
  * sin comillas. Pero en el **panel de variables de entorno** de un alojamiento
  * (alwaysdata, Heroku, Railway…) el valor se toma **literal**: escribir ahí
- * `'0306Diego@'` produce una contraseña de 12 caracteres que empieza y termina
- * en comilla, y MariaDB responde `ER_ACCESS_DENIED_ERROR`.
+ * `'mi-clave'` produce una contraseña de 10 caracteres que empieza y termina en
+ * comilla, y MariaDB responde `ER_ACCESS_DENIED_ERROR`.
  *
  * El síntoma es cruel porque el `.env` local funciona y el servidor no, con la
  * misma contraseña a la vista. Se limpia y se avisa: dejarlo pasar en silencio

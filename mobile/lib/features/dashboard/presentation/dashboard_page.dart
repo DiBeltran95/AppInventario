@@ -8,6 +8,7 @@ import '../../../core/providers/providers.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/fechas.dart';
+import '../../../core/widgets/contador_animado.dart';
 import '../../../core/widgets/estados.dart';
 import '../../../core/widgets/sync_chip.dart';
 import '../../auth/presentation/auth_providers.dart';
@@ -266,8 +267,10 @@ class _TarjetaHoy extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            Text(
-              resumen.ventasHoy.format(),
+            // La cifra sube en lugar de aparecer: es el dato que el dueño abre
+            // la app para ver, y el movimiento lleva el ojo hasta él.
+            ContadorMoney(
+              resumen.ventasHoy,
               style: context.textos.displaySmall?.copyWith(
                 color: context.colores.onSurface,
               ),
