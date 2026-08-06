@@ -1,0 +1,93 @@
+# Compilación en Codemagic — alternativa a GitHub Actions.
+#
+# Existe por una razón concreta: el 6 de agosto de 2026, una caída mayor de
+# GitHub Actions dejó los trabajos en cola sin asignarles runner, y se
+# cancelaban solos a los 15 minutos. Sin runner no hay APK ni IPA, y no hay nada
+# que arreglar en el repositorio. Depender de un único proveedor de CI convierte
+# su avería en tu bloqueo.
+#
+# Codemagic está pensado para Flutter y su plan gratuito incluye minutos de
+# macOS, que es lo que hace falta para el IPA: iOS **no se puede compilar en
+# Windows ni en Linux**, sólo en un Mac.
+#
+# ── Puesta en marcha (una sola vez) ─────────────────────────────────────────
+#
+#   1. Entra en https://codemagic.io con tu cuenta de GitHub.
+#   2. «Add application» → elige AppInventario → Flutter App.
+#   3. Codemagic detecta este archivo solo. Elige el workflow y pulsa
+#      «Start new build».
+#
+# Los binarios quedan en la pestaña «Artifacts» de la compilación.
+
+workflows:
+  # ───────────────────────────────────────────────────────────────────────────
+  android:
+    name: Android — APK y AAB
+    instance_type: linux_x2
+    max_build_duration: 45
+    working_directory: mobile
+    environment:
+      flutter: 3.44.1
+      java: 17
+    scripts:
+      - name: Dependencias
+        script: flutter pub get
+
+      # Igual que en GitHub Actions: primero se verifica, después se compila.
+      # Publicar un binario que no supera sus propias pruebas no sirve de nada.
+      - name: Análisis
+        script: flutter analyze
+
+      - name: Pruebas
+        script: flutter test
+
+      - name: Compilar APK y App Bundle
+        script: |
+          flutter build apk --release --build-number=$PROJECT_BUILD_NUMBER
+          flutter build apk --release --build-number=$PROJECT_BUILD_NUMBER --split-per-abi
+          flutter build appbundle --release --build-number=$PROJECT_BUILD_NUMBER
+    artifacts:
+      - build/**/outputs/**/*.apk
+      - build/**/outputs/**/*.aab
+
+  # ───────────────────────────────────────────────────────────────────────────
+  ios:
+    name: iOS — IPA sin firmar
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    working_directory: mobile
+    environment:
+      flutter: 3.44.1
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Dependencias
+        script: flutter pub get
+
+      - name: Análisis
+        script: flutter analyze
+
+      - name: Pruebas
+        script: flutter test
+
+      - name: Compilar sin firmar
+        # `--no-codesign` es obligatorio: firmar exige un certificado de
+        # desarrollador de Apple (cuenta de pago) que no está configurado aquí.
+        script: flutter build ios --release --no-codesign --build-number=$PROJECT_BUILD_NUMBER
+
+      - name: Empaquetar el .ipa
+        # Un .ipa no es más que un zip con la app dentro de una carpeta
+        # `Payload/`. `flutter build ipa` no sirve sin firma, así que se
+        # empaqueta a mano.
+        #
+        # El resultado NO se instala directo en un iPhone: hay que firmarlo
+        # antes con Sideloadly, AltStore o Xcode. Con una cuenta gratuita de
+        # Apple caduca a los 7 días y compite con el tope de 3 apps.
+        script: |
+          mkdir -p Payload
+          cp -r build/ios/iphoneos/Runner.app Payload/
+          zip -qr InventarioPOS-sin-firmar.ipa Payload
+          rm -rf Payload
+          ls -lh InventarioPOS-sin-firmar.ipa
+    artifacts:
+      - InventarioPOS-sin-firmar.ipa

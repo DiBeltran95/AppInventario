@@ -153,6 +153,19 @@ Al terminar, los binarios quedan en **Artifacts**, al final de la página del ru
 | `android-aab` | App Bundle | sólo para subir a Play Store |
 | `ios-ipa-sin-firmar` | `.ipa` **sin firmar** | ❌ requiere firma previa |
 
+### Alternativa cuando GitHub Actions no responde
+
+El repositorio incluye [`codemagic.yaml`](codemagic.yaml), que compila lo mismo en
+[Codemagic](https://codemagic.io) —un CI pensado para Flutter, con minutos de macOS en su plan
+gratuito—. No hace falta tocar nada del proyecto:
+
+1. Entra en codemagic.io con tu cuenta de GitHub.
+2. *Add application* → **AppInventario** → Flutter App.
+3. Detecta el archivo solo. Elige `android` o `ios` y pulsa *Start new build*.
+
+Sirve para no quedarse bloqueado cuando Actions tiene una incidencia: **el IPA sólo puede salir de
+un Mac**, así que sin un runner de macOS disponible no hay forma de generarlo.
+
 ### Cuando los trabajos salen «cancelled» sin ejecutar ningún paso
 
 Si en la página del run los trabajos aparecen cancelados y **no tienen ni un paso** dentro, no es un
