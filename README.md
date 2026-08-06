@@ -135,23 +135,26 @@ No hace falta tener el SDK de Android ni un Mac: el workflow
 
 **Actions → Build → Run workflow**, o automáticamente en cada push a `main`.
 
-Primero se verifica y sólo después se compila:
+El entregable es el **IPA de iOS**. Todo ocurre en un único trabajo, en este orden:
 
 ```
-verificar (análisis + pruebas)  ──►  APK Android
-                                └►  IPA iOS
+análisis  →  pruebas  →  compilar  →  empaquetar .ipa
 ```
 
-Si el análisis o las pruebas fallan, no se compila nada: un APK que no pasa sus propias pruebas no
-sirve, y menos aún gastar en él un runner de macOS.
+Si el análisis o las pruebas fallan, no se compila: un binario que no pasa sus propias pruebas no
+vale la pena empaquetarlo.
 
-Al terminar, los binarios quedan en **Artifacts**, al final de la página del run:
+Verificar y compilar van juntos —y no en dos trabajos encadenados— porque así se pide **un solo
+runner**. Cada trabajo extra es otra oportunidad de quedarse esperando máquina cuando GitHub anda
+mal, y con dos hacían falta dos aciertos seguidos para obtener el IPA.
 
-| Artefacto | Qué contiene | Se instala |
+| Artefacto | Cuándo | Se instala |
 |---|---|---|
-| `android-apk` | APK universal + uno por arquitectura | ✅ directamente en el teléfono |
-| `android-aab` | App Bundle | sólo para subir a Play Store |
-| `ios-ipa-sin-firmar` | `.ipa` **sin firmar** | ❌ requiere firma previa |
+| `ios-ipa-sin-firmar` | en cada ejecución | ❌ requiere firmarlo antes |
+| `android-apk` | sólo marcando la casilla en *Run workflow* | ✅ directo en el teléfono |
+
+El APK sigue disponible a petición porque es la forma práctica de probar la app en un móvil: se
+instala directo y no caduca, al revés que el IPA sin firmar.
 
 ### Alternativa cuando GitHub Actions no responde
 

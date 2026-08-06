@@ -1,49 +1,54 @@
 name: Build
 
-# Verifica primero y compila después.
+# Genera el **IPA de iOS**. Es el único entregable de este workflow.
 #
-#     verificar  ──►  android  (APK + AAB)
-#                └►  ios      (IPA sin firmar)
+# ── Por qué todo ocurre en UN SOLO trabajo ──────────────────────────────────
 #
-# `verificar` corre el análisis y las pruebas de la app y del backend. Si algo
-# falla, no se compila nada: no tiene sentido publicar un APK que no pasa sus
-# propias pruebas, y menos gastar un runner de macOS —que se factura a 10x— para
-# empaquetar código roto.
+# Verificar y compilar están en el mismo trabajo, no en dos encadenados. El
+# orden que importa se mantiene —análisis y pruebas primero, compilación
+# después— pero con una diferencia decisiva: **una sola petición de runner**.
 #
-# ── Si los trabajos salen «cancelled» SIN NINGÚN paso ejecutado ─────────────
+# Cada trabajo pide su propia máquina, y cuando GitHub no las está asignando
+# —caída del 6 de agosto de 2026: «jobs may remain queued for an extended
+# period before starting or may time out»— cada petición extra es otra
+# oportunidad de quedarse sin nada. Con `verificar` en Ubuntu y `ios` en macOS
+# hacían falta dos aciertos seguidos; si el primero fallaba, el IPA ni se
+# intentaba. Ahora hace falta uno.
 #
-# No es del código ni de este archivo: los trabajos nunca consiguieron un
-# runner. Dos causas posibles, en este orden:
+# De paso, reutiliza el checkout y el SDK: analizar y probar aquí no cuesta
+# tiempo extra de preparación.
 #
-#   1. Una incidencia de GitHub. Compruébalo en https://www.githubstatus.com;
-#      cuando Actions está caído, los trabajos quedan en cola y se cancelan
-#      solos a los ~15 minutos. No hay nada que arreglar: se relanza después.
-#   2. Cuota de Actions agotada (Settings → Billing). En repositorios privados
-#      hay minutos mensuales y macOS consume 10 por cada minuto real; al
-#      agotarlos GitHub cancela todas las ejecuciones. En repositorios públicos
-#      los runners estándar son gratis e ilimitados.
+# ── Si el trabajo sale «cancelled» SIN NINGÚN paso ejecutado ────────────────
+#
+# No es del código ni de este archivo: nunca consiguió runner. Se reconoce
+# porque no aparece «Set up job» y la ejecución muere a los ~15 minutos.
+#
+#   1. Mira https://www.githubstatus.com. Con Actions caído no hay nada que
+#      arreglar aquí: se relanza cuando se restablezca.
+#   2. Si Actions está bien, mira Settings → Billing. macOS consume 10 minutos
+#      de cuota por cada minuto real; en repositorios públicos es gratis.
+#
+# Alternativa que no depende de GitHub: `codemagic.yaml`, en la raíz.
 
 on:
   push:
     branches: [main]
-    # Un cambio de documentación no puede costar un runner de macOS a 10x.
     paths-ignore: ['**.md', 'docs/**', '.gitignore']
   pull_request:
     branches: [main]
     paths-ignore: ['**.md', 'docs/**', '.gitignore']
   workflow_dispatch:
     inputs:
-      construir_ios:
-        description: 'Compilar también el IPA de iOS (runner macOS)'
+      construir_android:
+        description: 'Compilar también el APK de Android (no se genera por defecto)'
         type: boolean
-        default: true
+        default: false
       omitir_verificacion:
-        description: 'Compilar aunque falle el análisis (para sacar un APK con el CI averiado)'
+        description: 'Compilar aunque falle el análisis (para sacar un binario con el CI averiado)'
         type: boolean
         default: false
 
-# Al empujar dos veces seguidas, la primera ejecución deja de ser interesante:
-# se cancela en lugar de pagar dos compilaciones completas.
+# Al empujar dos veces seguidas, la primera ejecución deja de ser interesante.
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
@@ -53,14 +58,14 @@ env:
 
 jobs:
   # ───────────────────────────────────────────────────────────────────────────
-  # 1. Puerta de calidad. Corre en Linux, que es lo más barato y disponible.
+  # iOS — verifica y compila el .ipa SIN FIRMAR.
   # ───────────────────────────────────────────────────────────────────────────
-  verificar:
-    name: Análisis y pruebas
-    runs-on: ubuntu-latest
+  ios:
+    name: IPA iOS (sin firmar)
+    runs-on: macos-latest
     # Cubre también el tiempo EN COLA: más vale fallar pronto y relanzar que
     # descubrir media hora después que nunca llegó a arrancar.
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -70,47 +75,69 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Dependencias de la app
+      - name: Dependencias
         working-directory: mobile
         run: flutter pub get
 
+      # ── Verificación ───────────────────────────────────────────────────────
       # `continue-on-error` sólo se activa si alguien marca la casilla en el
-      # disparador manual. Por defecto el análisis sigue siendo bloqueante.
+      # disparador manual. Por defecto el análisis sigue siendo bloqueante: un
+      # IPA que no pasa sus propias pruebas no vale la pena empaquetarlo.
+
       - name: flutter analyze
         working-directory: mobile
         continue-on-error: ${{ inputs.omitir_verificacion == true }}
         run: flutter analyze
 
-      - name: Pruebas de la app
+      - name: Pruebas
         working-directory: mobile
         continue-on-error: ${{ inputs.omitir_verificacion == true }}
         run: flutter test
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: backend/package-lock.json
+      # ── Compilación ────────────────────────────────────────────────────────
 
-      - name: Dependencias del backend
-        working-directory: backend
-        run: npm ci
-
-      - name: Pruebas del backend
-        working-directory: backend
-        continue-on-error: ${{ inputs.omitir_verificacion == true }}
-        # `db:check` y `smoke` quedan fuera a propósito: necesitan credenciales
-        # de MariaDB, que no viven en el repositorio. Estas dos no tocan la base.
+      - name: Compilar sin firmar
+        working-directory: mobile
+        # `--no-codesign` es obligatorio aquí: firmar exige un certificado de
+        # desarrollador de Apple (cuenta de pago) que no está en los secretos.
         run: |
-          npm run lint:tx
-          npm test
+          flutter build ios --release --no-codesign \
+            --build-number=${{ github.run_number }}
+
+      - name: Empaquetar el .ipa
+        working-directory: mobile
+        # Un .ipa no es más que un zip con la app dentro de una carpeta
+        # `Payload/`. `flutter build ipa` no sirve sin firma, así que se
+        # empaqueta a mano.
+        #
+        # El resultado NO se instala directo en un iPhone: hay que firmarlo
+        # antes con Sideloadly, AltStore o Xcode. Con una cuenta gratuita de
+        # Apple caduca a los 7 días y compite con el tope de 3 apps.
+        run: |
+          mkdir -p Payload
+          cp -r build/ios/iphoneos/Runner.app Payload/
+          zip -qr InventarioPOS-sin-firmar.ipa Payload
+          rm -rf Payload
+          ls -lh InventarioPOS-sin-firmar.ipa
+
+      - name: Publicar IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa-sin-firmar
+          path: mobile/InventarioPOS-sin-firmar.ipa
+          retention-days: 30
+          if-no-files-found: error
 
   # ───────────────────────────────────────────────────────────────────────────
-  # 2. Android — APK (universal y por arquitectura) + App Bundle.
+  # Android — APAGADO. Sólo se compila marcando la casilla en «Run workflow».
+  #
+  # Se conserva porque el APK es la forma práctica de probar la app en un
+  # teléfono —se instala directo y no caduca, al revés que el IPA sin firmar—,
+  # pero no se genera en ninguna ejecución automática.
   # ───────────────────────────────────────────────────────────────────────────
   android:
-    name: APK Android
-    needs: verificar
+    name: APK Android (a petición)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.construir_android }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -131,91 +158,26 @@ jobs:
         working-directory: mobile
         run: flutter pub get
 
+      - name: flutter analyze
+        working-directory: mobile
+        continue-on-error: ${{ inputs.omitir_verificacion == true }}
+        run: flutter analyze
+
+      - name: Pruebas
+        working-directory: mobile
+        continue-on-error: ${{ inputs.omitir_verificacion == true }}
+        run: flutter test
+
       - name: Compilar APK
         working-directory: mobile
-        # El número de compilación sale del contador del workflow para que dos
-        # APK nunca compartan versionCode.
-        #
-        # Se firma con la clave de depuración (así lo deja el proyecto Flutter
-        # por defecto): el APK instala y funciona, pero NO sirve para publicar
-        # en Play Store. Para eso hace falta un keystore propio en los secretos
-        # del repositorio.
         run: |
           flutter build apk --release \
-            --build-number=${{ github.run_number }} \
-            --split-per-abi
-          flutter build apk --release \
             --build-number=${{ github.run_number }}
-
-      - name: Compilar App Bundle
-        working-directory: mobile
-        run: flutter build appbundle --release --build-number=${{ github.run_number }}
 
       - name: Publicar APK
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
           path: mobile/build/app/outputs/flutter-apk/*.apk
-          retention-days: 30
-          if-no-files-found: error
-
-      - name: Publicar App Bundle
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-aab
-          path: mobile/build/app/outputs/bundle/release/*.aab
-          retention-days: 30
-          if-no-files-found: error
-
-  # ───────────────────────────────────────────────────────────────────────────
-  # 3. iOS — .ipa SIN FIRMAR.
-  #
-  # Se instala sólo con Sideloadly, AltStore o Xcode. Con una cuenta gratuita de
-  # Apple caduca a los 7 días y compite con el tope de 3 apps por dispositivo.
-  # ───────────────────────────────────────────────────────────────────────────
-  ios:
-    name: IPA iOS (sin firmar)
-    needs: verificar
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.construir_ios }}
-    runs-on: macos-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
-
-      - name: Dependencias
-        working-directory: mobile
-        run: flutter pub get
-
-      - name: Compilar sin firmar
-        working-directory: mobile
-        # `--no-codesign` es obligatorio aquí: firmar exige un certificado de
-        # desarrollador de Apple (cuenta de pago) que no está en los secretos.
-        run: |
-          flutter build ios --release --no-codesign \
-            --build-number=${{ github.run_number }}
-
-      - name: Empaquetar el .ipa
-        working-directory: mobile
-        # Un .ipa no es más que un zip con la app dentro de una carpeta
-        # `Payload/`. `flutter build ipa` no sirve sin firma, así que se
-        # empaqueta a mano.
-        run: |
-          mkdir -p Payload
-          cp -r build/ios/iphoneos/Runner.app Payload/
-          zip -qr InventarioPOS-sin-firmar.ipa Payload
-          rm -rf Payload
-          ls -lh InventarioPOS-sin-firmar.ipa
-
-      - name: Publicar IPA
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-ipa-sin-firmar
-          path: mobile/InventarioPOS-sin-firmar.ipa
           retention-days: 30
           if-no-files-found: error
