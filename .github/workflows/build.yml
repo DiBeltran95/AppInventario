@@ -1,10 +1,28 @@
 name: Build
 
-# Compila la app para Android e iOS y publica los binarios como artefactos.
+# Compila la app y publica los binarios como artefactos.
 #
-# Se ejecuta a mano (`workflow_dispatch`) y en cada push a main. El trabajo de
-# iOS necesita un runner macOS, que consume minutos de GitHub a razón de 10x;
-# por eso puede desactivarse desde el propio disparador manual.
+# ── Por qué los tres trabajos son INDEPENDIENTES ────────────────────────────
+#
+# Antes había una cadena: `verificar` → (`android`, `ios`). Parecía lo correcto
+# —no gastar un runner de macOS si el análisis falla— pero en la práctica costó
+# dos APK seguidos:
+#
+#   · 2026-08-06 15:14 — un fallo de infraestructura de GitHub impidió al runner
+#     descargar NINGUNA acción; `verificar` murió en «Set up job» y, al depender
+#     de él, ni Android ni iOS se intentaron.
+#   · 2026-08-06 16:00 — el mismo fallo, esta vez sólo en el runner de Android:
+#     7 minutos colgado en «Set up job» mientras los otros dos trabajos pasaban
+#     sin problema en la MISMA ejecución.
+#
+# La lección: cada «Set up job» es una tirada de dados contra la red de GitHub.
+# Encadenar trabajos multiplica las tiradas y hace que el tropiezo de uno se
+# lleve por delante a los demás. Ahora cada trabajo se verifica a sí mismo y
+# publica lo suyo; que iOS falle no puede dejarte sin APK.
+#
+# El análisis de Flutter vive DENTRO del trabajo de Android en vez de en uno
+# aparte: reutiliza el mismo checkout y el mismo SDK, así que sale gratis y evita
+# una preparación de runner entera.
 
 on:
   push:
@@ -21,7 +39,7 @@ on:
         type: boolean
         default: true
       omitir_verificacion:
-        description: 'Compilar aunque falle el análisis (sólo para sacar un APK con el CI averiado)'
+        description: 'Compilar aunque falle el análisis (para sacar un APK con el CI averiado)'
         type: boolean
         default: false
 
@@ -30,73 +48,12 @@ env:
 
 jobs:
   # ───────────────────────────────────────────────────────────────────────────
-  # Puerta de calidad. Corre primero y en Linux, que es rápido y barato: si el
-  # análisis falla, no tiene sentido gastar un runner de macOS.
-  # ───────────────────────────────────────────────────────────────────────────
-  verificar:
-    name: Análisis y pruebas
-    runs-on: ubuntu-latest
-    # Sin tope, un runner colgado consume hasta 6 horas de cuota antes de
-    # rendirse. Estos pasos tardan ~3 minutos cuando todo va bien.
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
-
-      - name: Dependencias
-        working-directory: mobile
-        run: flutter pub get
-
-      - name: flutter analyze
-        working-directory: mobile
-        run: flutter analyze
-
-      - name: Pruebas de la app
-        working-directory: mobile
-        run: flutter test
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: backend/package-lock.json
-
-      - name: Dependencias del backend
-        working-directory: backend
-        run: npm ci
-
-      - name: Pruebas del backend
-        working-directory: backend
-        # `db:check` queda fuera a propósito: necesita credenciales de MariaDB,
-        # que no viven en el repo. Estas dos no tocan la base.
-        run: |
-          npm run lint:tx
-          npm test
-
-  # ───────────────────────────────────────────────────────────────────────────
-  # Android — APK release y App Bundle
+  # Android — analiza, prueba y compila. Todo en un runner.
   # ───────────────────────────────────────────────────────────────────────────
   android:
-    name: APK Android
-    needs: verificar
-    # Válvula de escape para un CI averiado.
-    #
-    # El 2026-08-06 un fallo de infraestructura de GitHub impidió al runner
-    # descargar NINGUNA acción (`actions/checkout@v4` incluido), el job murió en
-    # «Set up job» y, al depender de él, el APK ni siquiera se intentó. El
-    # código estaba perfectamente bien.
-    #
-    # Por defecto la puerta de calidad se respeta. Pero desde el disparador
-    # manual se puede marcar `omitir_verificacion` para sacar un APK igualmente:
-    # es preferible eso a quedarse sin instalable por un tropiezo ajeno.
-    if: ${{ always() && (needs.verificar.result == 'success' || inputs.omitir_verificacion) }}
+    name: Android (análisis, pruebas y APK)
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -114,6 +71,18 @@ jobs:
       - name: Dependencias
         working-directory: mobile
         run: flutter pub get
+
+      # `continue-on-error` sólo se activa si alguien marca la casilla en el
+      # disparador manual. Por defecto el análisis sigue siendo bloqueante.
+      - name: flutter analyze
+        working-directory: mobile
+        continue-on-error: ${{ inputs.omitir_verificacion == true }}
+        run: flutter analyze
+
+      - name: Pruebas de la app
+        working-directory: mobile
+        continue-on-error: ${{ inputs.omitir_verificacion == true }}
+        run: flutter test
 
       - name: Compilar APK
         working-directory: mobile
@@ -139,8 +108,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: |
-            mobile/build/app/outputs/flutter-apk/*.apk
+          path: mobile/build/app/outputs/flutter-apk/*.apk
           retention-days: 30
           if-no-files-found: error
 
@@ -153,12 +121,11 @@ jobs:
           if-no-files-found: error
 
   # ───────────────────────────────────────────────────────────────────────────
-  # iOS — .ipa SIN FIRMAR
+  # iOS — .ipa SIN FIRMAR. Independiente: su fallo no afecta al APK.
   # ───────────────────────────────────────────────────────────────────────────
   ios:
     name: IPA iOS (sin firmar)
-    needs: verificar
-    if: ${{ always() && (needs.verificar.result == 'success' || inputs.omitir_verificacion) && (github.event_name != 'workflow_dispatch' || inputs.construir_ios) }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.construir_ios }}
     runs-on: macos-latest
     timeout-minutes: 45
     steps:
@@ -203,3 +170,32 @@ jobs:
           path: mobile/InventarioPOS-sin-firmar.ipa
           retention-days: 30
           if-no-files-found: error
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Backend — pruebas de Node. Independiente: que fallen no puede costar un APK,
+  # son entregables distintos.
+  # ───────────────────────────────────────────────────────────────────────────
+  backend:
+    name: Pruebas del backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Dependencias
+        working-directory: backend
+        run: npm ci
+
+      - name: Pruebas
+        working-directory: backend
+        # `db:check` y `smoke` quedan fuera a propósito: necesitan credenciales
+        # de MariaDB, que no viven en el repositorio. Estas dos no tocan la base.
+        run: |
+          npm run lint:tx
+          npm test
