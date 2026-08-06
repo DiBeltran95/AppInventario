@@ -113,18 +113,22 @@ jobs:
         # El resultado NO se instala directo en un iPhone: hay que firmarlo
         # antes con Sideloadly, AltStore o Xcode. Con una cuenta gratuita de
         # Apple caduca a los 7 días y compite con el tope de 3 apps.
+        #
+        # El número de compilación va en el nombre del archivo: tras varias
+        # descargas, tres `.ipa` idénticos en la carpeta no dejan saber cuál
+        # lleva los últimos cambios.
         run: |
           mkdir -p Payload
           cp -r build/ios/iphoneos/Runner.app Payload/
-          zip -qr InventarioPOS-sin-firmar.ipa Payload
+          zip -qr InventarioPOS-${{ github.run_number }}.ipa Payload
           rm -rf Payload
-          ls -lh InventarioPOS-sin-firmar.ipa
+          ls -lh InventarioPOS-${{ github.run_number }}.ipa
 
       - name: Publicar IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ios-ipa-sin-firmar
-          path: mobile/InventarioPOS-sin-firmar.ipa
+          name: ios-ipa-${{ github.run_number }}
+          path: mobile/InventarioPOS-${{ github.run_number }}.ipa
           retention-days: 30
           if-no-files-found: error
 
