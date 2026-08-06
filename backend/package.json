@@ -13,6 +13,7 @@
     "db:migrate": "node scripts/migrate.mjs",
     "db:seed": "node scripts/seed.mjs",
     "db:reset": "node scripts/migrate.mjs --drop && node scripts/seed.mjs",
+    "db:ping": "node scripts/db-ping.mjs",
     "db:check": "node scripts/check.mjs",
     "smoke": "node scripts/smoke.mjs",
     "lint:tx": "node scripts/lint-tx.mjs",

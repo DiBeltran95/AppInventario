@@ -4,6 +4,47 @@ Guía específica del alojamiento actual: `https://inventarios.alwaysdata.net`.
 
 ---
 
+## 0. Lo primero: `npm run db:ping`
+
+Antes de tocar nada, ejecuta en el servidor:
+
+```bash
+cd ~/www && npm run db:ping
+```
+
+Imprime **qué credenciales recibe de verdad el proceso** (sin revelar la contraseña: sólo su
+longitud y una huella) e intenta conectar. Casi cualquier fallo de despliegue se identifica aquí en
+diez segundos.
+
+### El error `ER_ACCESS_DENIED_ERROR` y las comillas
+
+Éste merece sección propia porque es desconcertante: el `.env` local funciona y el servidor no, con
+la misma contraseña a la vista.
+
+```
+Access denied for user 'inventarios'@'…' (using password: YES)
+```
+
+La causa habitual es que en el **panel de variables de entorno** del alojamiento la contraseña esté
+escrita entre comillas:
+
+```bash
+DB_PASSWORD='miClave@'     # ❌ en el panel: la contraseña pasa a ser  'miClave@'  con comillas
+DB_PASSWORD=miClave@       # ✅
+```
+
+En un archivo `.env` las comillas las interpreta y quita `dotenv`. **El panel del alojamiento no
+interpreta nada: guarda el valor literal**, comillas incluidas. Son dos caracteres de más y MariaDB
+rechaza la conexión.
+
+Desde la versión actual, el backend **detecta y quita** esas comillas al arrancar y lo avisa en el
+log — pero conviene corregirlas en el panel de todas formas.
+
+Lo mismo vale para los espacios y los saltos de línea que se cuelan al copiar y pegar. `db:ping` los
+señala todos.
+
+---
+
 ## 1. El error 502 «Connection to upstream failed»
 
 Es el fallo más frecuente y **casi nunca es del código**. Significa que el proxy de alwaysdata
@@ -13,9 +54,9 @@ Sólo hay tres causas posibles:
 
 | Causa | Cómo se reconoce | Solución |
 |---|---|---|
+| **El proceso murió al arrancar** | El log termina en `Upstream starting failed: npm start (return code: 1)`. | Casi siempre es la base de datos: ve a §0. |
 | **El proceso no está corriendo** | Arrancaste `npm start` a mano por SSH y cerraste la sesión. El log muestra el arranque pero nada después. | Configúralo como *sitio* en el panel para que alwaysdata lo mantenga vivo y lo reinicie solo (§2). |
 | **Puerto distinto** | El log dice `escuchando en …:8100` pero el sitio del panel apunta a otro puerto. | Que coincidan el campo «Puerto» del panel y `PORT` del `.env` del servidor. |
-| **El proceso murió al arrancar** | El log termina en un error de Node en vez de en «API escuchando». | Mira los logs y §4. |
 
 Comprobación desde tu máquina:
 
@@ -36,9 +77,13 @@ curl -i https://inventarios.alwaysdata.net/health
 |---|---|
 | Direcciones | `inventarios.alwaysdata.net` |
 | Tipo | **Programa de usuario** (*User program*) |
-| Comando | `/usr/local/alwaysdata/bin/npm --prefix /home/<cuenta>/www/AppInventario/backend start` |
-| Directorio de trabajo | `/home/<cuenta>/www/AppInventario/backend` |
-| Puerto | el mismo que `PORT` en el `.env` del servidor |
+| Comando | `npm start` |
+| Directorio de trabajo | `/home/inventarios/www` |
+| Puerto | el mismo que `PORT` en las variables de entorno |
+
+En el despliegue actual el contenido de `backend/` está directamente en `~/www/` (por eso el log
+muestra rutas como `/home/inventarios/www/src/db/pool.js`). Si algún día clonas el repo completo,
+el directorio de trabajo pasaría a ser `~/www/AppInventario/backend`.
 
 Lo importante del tipo «Programa de usuario» es que alwaysdata **supervisa** el proceso: lo arranca
 al desplegar y lo reinicia si se cae. Un `npm start` lanzado por SSH muere con la sesión, y ésa es
@@ -139,3 +184,22 @@ defecto a `https://inventarios.alwaysdata.net` sin que haya que tocar nada.
 - [ ] `NODE_ENV=production`.
 - [ ] Usar siempre **https** en la app (ya es el valor por defecto).
 - [ ] Que el `.env` no acabe nunca en el repositorio (ya está en `.gitignore`).
+
+### Rotar credenciales expuestas
+
+Una credencial que se ha pegado en un chat, un correo, una captura o un ticket **está quemada**,
+aunque parezca que nadie la vio. Rotarla cuesta dos minutos:
+
+**1. Contraseña de MariaDB** — panel de alwaysdata → *Bases de datos → Usuarios* → cambiar la
+contraseña. Después actualiza `DB_PASSWORD` en las variables de entorno del sitio (sin comillas) y
+reinicia.
+
+**2. Secretos JWT** — genera dos nuevos y distintos:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+```
+
+Cambiarlos invalida todas las sesiones abiertas: los usuarios tendrán que volver a iniciar sesión
+**con conexión** una vez. Las ventas guardadas en los dispositivos no se pierden — siguen en la cola
+local y se envían tras el nuevo login.

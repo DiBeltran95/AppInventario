@@ -12,7 +12,31 @@ try {
   logger.info({ motor: bd.version, ahora: bd.ahora }, 'Base de datos conectada');
 } catch (err) {
   logger.error({ err }, `No se pudo conectar a ${env.DB_HOST}/${env.DB_NAME}`);
-  logger.error('Revisa las variables DB_* en backend/.env');
+
+  // Un volcado de stack no le dice a nadie qué hacer. Los tres fallos de
+  // despliegue que ocurren de verdad tienen causas muy concretas.
+  const pistas = {
+    ER_ACCESS_DENIED_ERROR: [
+      `MariaDB rechazó al usuario "${env.DB_USER}". La contraseña llegó con ${env.DB_PASSWORD.length} caracteres.`,
+      'Si ese número no coincide con tu contraseña real, sobran comillas o espacios en la variable DB_PASSWORD.',
+      'Compruébala directamente:',
+      `  mysql -h ${env.DB_HOST} -u ${env.DB_USER} -p ${env.DB_NAME} -e "SELECT 1"`,
+    ],
+    ER_BAD_DB_ERROR: [
+      `El usuario existe pero la base "${env.DB_NAME}" no. Créala en el panel o corrige DB_NAME.`,
+    ],
+    ENOTFOUND: [`El host "${env.DB_HOST}" no resuelve. Revisa DB_HOST.`],
+    ETIMEDOUT: [
+      `Sin respuesta de ${env.DB_HOST}:${env.DB_PORT}. Puede ser un cortafuegos o que la base`,
+      'sólo acepte conexiones desde la propia red del alojamiento.',
+    ],
+  }[err?.code];
+
+  if (pistas) {
+    for (const linea of pistas) logger.error(linea);
+  } else {
+    logger.error('Revisa las variables DB_* del entorno (o de backend/.env en local).');
+  }
   process.exit(1);
 }
 

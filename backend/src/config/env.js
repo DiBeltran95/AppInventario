@@ -46,7 +46,43 @@ const schema = z.object({
   SYNC_PULL_MAX_ROWS: z.coerce.number().int().positive().default(500),
 });
 
-const parsed = schema.safeParse(process.env);
+/**
+ * Quita las comillas que envuelven un valor.
+ *
+ * En un archivo `.env`, dotenv ya interpreta `CLAVE='valor'` y entrega `valor`
+ * sin comillas. Pero en el **panel de variables de entorno** de un alojamiento
+ * (alwaysdata, Heroku, Railway…) el valor se toma **literal**: escribir ahí
+ * `'0306Diego@'` produce una contraseña de 12 caracteres que empieza y termina
+ * en comilla, y MariaDB responde `ER_ACCESS_DENIED_ERROR`.
+ *
+ * El síntoma es cruel porque el `.env` local funciona y el servidor no, con la
+ * misma contraseña a la vista. Se limpia y se avisa: dejarlo pasar en silencio
+ * escondería que la configuración del panel está mal escrita.
+ */
+function limpiarComillas(clave, valor) {
+  if (typeof valor !== 'string' || valor.length < 2) return valor;
+
+  const primera = valor[0];
+  const ultima = valor[valor.length - 1];
+  if ((primera !== "'" && primera !== '"') || primera !== ultima) return valor;
+
+  const limpio = valor.slice(1, -1);
+  console.warn(
+    `[config] ${clave} venía envuelta en comillas (${primera}…${primera}) y se han quitado. ` +
+      'Si la definiste en el panel de tu alojamiento, bórralas allí: ese panel guarda ' +
+      'el valor tal cual, comillas incluidas.',
+  );
+  return limpio;
+}
+
+const entorno = {};
+for (const clave of Object.keys(schema.shape)) {
+  if (process.env[clave] !== undefined) {
+    entorno[clave] = limpiarComillas(clave, process.env[clave]);
+  }
+}
+
+const parsed = schema.safeParse(entorno);
 
 if (!parsed.success) {
   const detalle = parsed.error.issues
