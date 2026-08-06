@@ -155,6 +155,33 @@ si falla, no se gasta un runner de macOS.
   (de pago). El `.ipa` resultante **no se instala tal cual en un iPhone**: hay que firmarlo antes
   con Xcode, Sideloadly o AltStore. Sin cuenta de Apple no hay forma de evitar este paso.
 
+### Instalar el `.ipa` en un iPhone con una cuenta gratuita
+
+Sideloadly firma el `.ipa` con tu Apple ID. Con una cuenta **gratuita** (*personal team*), Apple
+impone tres límites que no se pueden esquivar:
+
+| Límite | Cuenta gratuita | Apple Developer Program (99 USD/año) |
+|---|---|---|
+| Apps instaladas a la vez | **3** | 100+ dispositivos |
+| Duración de la firma | **7 días** | 1 año |
+| App IDs nuevos | 10 cada 7 días | sin límite práctico |
+
+**Error `ApplicationVerificationFailed` — «maximum number of installed apps»**
+
+```
+This device has reached the maximum number of installed apps
+using a free developer profile
+```
+
+No es un problema del `.ipa`: de hecho significa que se firmó bien y falló en la verificación
+final. Ya tienes 3 apps sideloadeadas ocupando los cupos —el propio error las lista—. **Borra una
+del iPhone y pulsa Retry.**
+
+**A los 7 días la app dejará de abrir.** Hay que volver a pasarla por Sideloadly. Para uso real en
+un mostrador esto no sirve: hace falta la cuenta de pago, o distribuir por TestFlight.
+
+Para probar la app sin estas fricciones, usa Android: el APK se instala directo y no caduca.
+
 ---
 
 ## 4. Cómo probar el modo offline
