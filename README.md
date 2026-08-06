@@ -133,18 +133,31 @@ flutter test      # aritmética monetaria del cliente
 No hace falta tener el SDK de Android ni un Mac: el workflow
 [`.github/workflows/build.yml`](.github/workflows/build.yml) lo hace en la nube.
 
-**Actions → Build → Run workflow**, o automáticamente en cada push a `main`.
+El **APK se compila solo** en cada push a `main`. El **`.ipa` hay que pedirlo**:
+*Actions → Build → Run workflow* y marcar la casilla «Compilar también iOS».
 
 Al terminar, los binarios quedan en **Artifacts**, al final de la página del run:
 
-| Artefacto | Qué contiene | Se instala |
+| Artefacto | Cuándo se genera | Se instala |
 |---|---|---|
-| `android-apk` | APK universal + uno por arquitectura | ✅ directamente en el teléfono |
-| `android-aab` | App Bundle | sólo para subir a Play Store |
-| `ios-ipa-sin-firmar` | `.ipa` **sin firmar** | ❌ requiere firma previa |
+| `android-apk` | en cada push | ✅ directamente en el teléfono |
+| `android-aab` | en cada push | sólo para subir a Play Store |
+| `ios-ipa-sin-firmar` | sólo a petición | ❌ requiere firma previa |
 
-Antes de compilar corre una puerta de calidad (`flutter analyze`, pruebas de la app y del backend);
-si falla, no se gasta un runner de macOS.
+Los tres trabajos son **independientes**: cada uno se verifica a sí mismo y publica lo suyo, así
+que un tropiezo de iOS no puede dejarte sin APK.
+
+### Cuando los trabajos salen «cancelled» sin ejecutar ningún paso
+
+Si en la página del run los trabajos aparecen cancelados y **no tienen ni un paso** dentro, no es
+un fallo de compilación: nunca consiguieron un runner. Mira **Settings → Billing**.
+
+Los runners de macOS se facturan a **10 minutos por cada minuto real**. En un repositorio privado
+eso agota la cuota mensual gratuita en pocas compilaciones de iOS, y al agotarse GitHub cancela
+todas las ejecuciones de golpe —también las de Android—. En un repositorio **público** los runners
+estándar son gratis e ilimitados.
+
+Por eso iOS ya no se compila en cada push: su coste no puede costarte el APK.
 
 ### Sobre la firma
 
