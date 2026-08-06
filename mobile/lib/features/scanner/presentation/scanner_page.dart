@@ -39,7 +39,8 @@ class ScannerPage extends ConsumerStatefulWidget {
   ConsumerState<ScannerPage> createState() => _ScannerPageState();
 }
 
-class _ScannerPageState extends ConsumerState<ScannerPage> {
+class _ScannerPageState extends ConsumerState<ScannerPage>
+    with WidgetsBindingObserver, RouteAware {
   late final MobileScannerController _controlador = MobileScannerController(
     detectionSpeed: DetectionSpeed.normal,
     detectionTimeoutMs: 250,
@@ -68,10 +69,87 @@ class _ScannerPageState extends ConsumerState<ScannerPage> {
   Timer? _temporizadorResultado;
 
   @override
+  void initState() {
+    super.initState();
+    // `MobileScanner` sólo se registra como observador del ciclo de vida cuando
+    // él mismo crea el controlador. Como aquí le pasamos el nuestro, esa parte
+    // nos toca: sin ella la cámara seguiría encendida con la app en segundo
+    // plano, gastando batería y bloqueando el sensor para otras apps.
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final ruta = ModalRoute.of(context);
+    if (ruta != null) observadorRutas.subscribe(this, ruta);
+  }
+
+  @override
   void dispose() {
+    observadorRutas.unsubscribe(this);
+    WidgetsBinding.instance.removeObserver(this);
     _temporizadorResultado?.cancel();
     _controlador.dispose();
     super.dispose();
+  }
+
+  // ── Control de la cámara ──────────────────────────────────────────────────
+
+  /// Estado deseado. La cámara puede tardar en obedecer, así que se guarda la
+  /// intención aparte de la realidad.
+  bool _camaraDeseada = true;
+
+  /// Encadena las operaciones de cámara.
+  ///
+  /// `start()` lanza `controllerInitializing` si se le llama mientras otro
+  /// arranque sigue en curso, y eso es fácil que pase: al cerrar una hoja
+  /// inferior llegan casi a la vez el aviso de ruta y el del ciclo de vida.
+  Future<void> _operacionCamara = Future<void>.value();
+
+  Future<void> _fijarCamara({required bool encendida}) {
+    _camaraDeseada = encendida;
+
+    _operacionCamara = _operacionCamara.then((_) async {
+      if (!mounted) return;
+      // Si ya está como se quiere, no se toca: `start()` sobre una cámara
+      // encendida es precisamente lo que producía el error que veía el usuario.
+      if (_controlador.value.isRunning == _camaraDeseada) return;
+      try {
+        if (_camaraDeseada) {
+          await _controlador.start();
+        } else {
+          await _controlador.stop();
+        }
+      } on MobileScannerException catch (e) {
+        // Encender lo ya encendido (o apagar lo apagado) no es un fallo que
+        // deba interrumpir al usuario.
+        debugPrint('Cámara: ${e.errorCode.name}');
+      }
+    });
+
+    return _operacionCamara;
+  }
+
+  // La cámara se apaga cuando algo se pone encima —el carrito, la rejilla de
+  // venta rápida, un diálogo— y se reanuda al volver.
+  @override
+  void didPushNext() => unawaited(_fijarCamara(encendida: false));
+
+  @override
+  void didPopNext() => unawaited(_fijarCamara(encendida: true));
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState estado) {
+    switch (estado) {
+      case AppLifecycleState.resumed:
+        unawaited(_fijarCamara(encendida: true));
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        unawaited(_fijarCamara(encendida: false));
+    }
   }
 
   // ── Detección ─────────────────────────────────────────────────────────────
@@ -200,7 +278,13 @@ class _ScannerPageState extends ConsumerState<ScannerPage> {
             fit: BoxFit.cover,
             errorBuilder: (context, error) => _ErrorCamara(
               error: error,
-              onReintentar: () => _controlador.start(),
+              // Reintentar tiene que APAGAR antes de encender. Llamar sólo a
+              // `start()` no hacía nada cuando el error era justamente que ya
+              // estaba encendida, y el botón parecía roto.
+              onReintentar: () async {
+                await _fijarCamara(encendida: false);
+                await _fijarCamara(encendida: true);
+              },
             ),
             placeholderBuilder: (context) => const ColoredBox(
               color: Colors.black,
@@ -270,17 +354,12 @@ class _ScannerPageState extends ConsumerState<ScannerPage> {
     );
   }
 
-  /// Abre la rejilla de venta rápida y pausa la cámara mientras está encima.
+  /// Abre la rejilla de venta rápida.
   ///
-  /// Sin pausarla, la cámara seguiría detectando códigos tras la hoja y
-  /// añadiría productos que el usuario no ve.
-  Future<void> _abrirVentaRapida() async {
-    await _controlador.stop();
-    if (!mounted) return;
-    await PanelVentaRapida.mostrar(context);
-    if (!mounted) return;
-    await _controlador.start();
-  }
+  /// La pausa y la reanudación de la cámara las gobierna `RouteAware`: la hoja
+  /// inferior es una ruta más, así que dispara `didPushNext`/`didPopNext`.
+  /// Aquí no se toca el controlador; hacerlo además duplicaría las llamadas.
+  Future<void> _abrirVentaRapida() => PanelVentaRapida.mostrar(context);
 }
 
 /// Acceso a la rejilla de venta rápida.
@@ -747,7 +826,10 @@ class _ErrorCamara extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   OutlinedButton(
-                    onPressed: () => context.pop(),
+                    // Si esta pantalla es la única de la pila, `pop` dejaría la
+                    // app en negro. Salir al inicio siempre funciona.
+                    onPressed: () =>
+                        context.canPop() ? context.pop() : context.go(Rutas.dashboard),
                     style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
                     child: const Text('Volver'),
                   ),

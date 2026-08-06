@@ -45,7 +45,7 @@ class CarritoPage extends ConsumerWidget {
               titulo: 'El carrito está vacío',
               descripcion: 'Escanea un producto para empezar a vender.',
               textoAccion: 'Escanear',
-              onAccion: () => context.pushReplacement('${Rutas.escanear}?modo=venta'),
+              onAccion: () => volverAlEscaner(context),
             )
           : ListView(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -60,7 +60,10 @@ class CarritoPage extends ConsumerWidget {
                   ),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
-                  onPressed: () => context.pushReplacement('${Rutas.escanear}?modo=venta'),
+                  // `volverAlEscaner` reutiliza el escáner que ya está debajo en la
+                  // pila. Empujar otro dejaba dos cámaras vivas y la segunda
+                  // no podía arrancar.
+                  onPressed: () => volverAlEscaner(context),
                   icon: const Icon(Icons.add_rounded),
                   label: const Text('Añadir otro producto'),
                   style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(52)),

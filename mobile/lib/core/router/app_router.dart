@@ -51,6 +51,30 @@ class Rutas {
 final _navegadorRaiz = GlobalKey<NavigatorState>(debugLabel: 'raiz');
 final _navegadorShell = GlobalKey<NavigatorState>(debugLabel: 'shell');
 
+/// Observador de rutas.
+///
+/// Lo necesita el escáner para saber cuándo deja de estar en primer plano: la
+/// cámara es un recurso exclusivo del sistema y no puede seguir encendida
+/// mientras el usuario está en el carrito. Se declara con `ModalRoute<dynamic>`
+/// —y no `PageRoute`— para que también avise cuando se abre una hoja inferior
+/// encima, como la rejilla de venta rápida.
+final observadorRutas = RouteObserver<ModalRoute<dynamic>>();
+
+/// Vuelve al escáner **sin apilar otra pantalla de cámara**.
+///
+/// El camino normal es escáner → carrito, así que el escáner sigue vivo debajo
+/// y basta con hacer `pop`. Empujar uno nuevo dejaba DOS `ScannerPage` montadas
+/// y dos `MobileScannerController` peleando por la cámara; el segundo fallaba
+/// con «already running. Stop it before starting again», y como la pantalla de
+/// error no tenía forma de volver, el usuario quedaba atrapado.
+void volverAlEscaner(BuildContext context) {
+  if (context.canPop()) {
+    context.pop();
+  } else {
+    context.pushReplacement('${Rutas.escanear}?modo=venta');
+  }
+}
+
 final routerProvider = Provider<GoRouter>((ref) {
   final sesion = ref.watch(sesionProvider);
 
@@ -58,6 +82,7 @@ final routerProvider = Provider<GoRouter>((ref) {
     navigatorKey: _navegadorRaiz,
     initialLocation: Rutas.dashboard,
     debugLogDiagnostics: false,
+    observers: [observadorRutas],
     redirect: (context, estado) {
       // Mientras se resuelve la sesión guardada no se redirige: mover al
       // usuario y devolverlo produce un parpadeo desagradable al arrancar.

@@ -4,9 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/database/daos/ventas_dao.dart';
 import '../../../../core/providers/providers.dart';
+import '../../../../core/sync/estado_sync.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/theme/motion.dart';
 import '../../../../core/widgets/estados.dart';
 import '../../data/ticket_pdf.dart';
+import '../ventas_providers.dart';
 
 /// Confirmación de venta.
 ///
@@ -79,7 +82,7 @@ class VentaExitosa extends ConsumerWidget {
               ],
 
               const SizedBox(height: 24),
-              _EstadoEnvio(pendiente: venta.pendienteDeSync),
+              _EstadoEnvio(ventaUuid: venta.venta.uuid),
               const Spacer(),
 
               Row(
@@ -135,38 +138,71 @@ class VentaExitosa extends ConsumerWidget {
   }
 }
 
-class _EstadoEnvio extends StatelessWidget {
-  const _EstadoEnvio({required this.pendiente});
+/// Estado de envío de la venta, **en vivo**.
+///
+/// Antes esto era una foto fija de `venta.sincronizadaEn == null`, y ese valor
+/// acaba de nacer nulo por definición: la venta se guarda en local y el envío
+/// va con tres segundos de rebote. Resultado: con cobertura perfecta la
+/// pantalla decía «se enviará cuando haya conexión», que es justo lo que hace
+/// dudar al vendedor de si la venta salió o no.
+///
+/// Ahora se observan dos cosas —la fila real de la venta y el estado de la
+/// red— y el aviso **cambia solo** delante del usuario cuando el envío termina.
+/// Esa transición es la que construye la confianza en el modo offline.
+class _EstadoEnvio extends ConsumerWidget {
+  const _EstadoEnvio({required this.ventaUuid});
 
-  final bool pendiente;
+  final String ventaUuid;
 
   @override
-  Widget build(BuildContext context) {
-    final (color, fondo, icono, texto) = pendiente
-        ? (
-            context.dominio.advertencia,
-            context.dominio.advertenciaContenedor,
-            Icons.cloud_upload_outlined,
-            'Guardada en el dispositivo. Se enviará sola cuando haya conexión.',
-          )
-        : (
-            context.dominio.exito,
-            context.dominio.exitoContenedor,
-            Icons.cloud_done_outlined,
-            'Guardada en el dispositivo y en camino al servidor.',
-          );
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enviada = ref.watch(ventaProvider(ventaUuid)).value?.venta.sincronizadaEn != null;
+    final sync = ref.watch(estadoSyncProvider).value ?? const EstadoSync();
+    final hayRed = sync.hayConexion;
+
+    final (color, fondo, icono, texto) = switch ((enviada, hayRed)) {
+      (true, _) => (
+          context.dominio.exito,
+          context.dominio.exitoContenedor,
+          Icons.cloud_done_rounded,
+          'Guardada y enviada al servidor.',
+        ),
+      (false, true) => (
+          context.dominio.info,
+          context.dominio.infoContenedor,
+          Icons.cloud_upload_rounded,
+          'Guardada. Enviando al servidor…',
+        ),
+      (false, false) => (
+          context.dominio.advertencia,
+          context.dominio.advertenciaContenedor,
+          Icons.cloud_off_rounded,
+          'Guardada en el dispositivo. Se enviará sola cuando vuelva la conexión.',
+        ),
+    };
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(color: fondo, borderRadius: BorderRadius.circular(14)),
       child: Row(
         children: [
-          Icon(icono, size: 20, color: color),
+          // Un giro sólo mientras está enviando: un icono quieto no distingue
+          // «en curso» de «atascado».
+          if (!enviada && hayRed)
+            Icon(icono, size: 20, color: color)
+                .animate(onPlay: (c) => c.repeat())
+                .rotate(duration: 1400.ms, curve: Curves.linear)
+          else
+            Icon(icono, size: 20, color: color),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(
-              texto,
-              style: context.textos.bodySmall?.copyWith(color: color),
+            child: AnimatedSwitcher(
+              duration: Motion.media,
+              child: Text(
+                texto,
+                key: ValueKey(texto),
+                style: context.textos.bodySmall?.copyWith(color: color),
+              ),
             ),
           ),
         ],
