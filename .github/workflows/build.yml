@@ -23,11 +23,19 @@ name: Build
 # El análisis de Flutter vive DENTRO del trabajo de Android en vez de en uno
 # aparte: reutiliza el mismo checkout y el mismo SDK, así que sale gratis y evita
 # una preparación de runner entera.
+#
+# ── Si los trabajos salen «cancelled» SIN NINGÚN paso ejecutado ─────────────
+#
+# No es del código: los trabajos ni siquiera consiguieron un runner. Mira
+# Settings → Billing. Con el repositorio en privado hay cuota mensual gratuita
+# y macOS gasta 10 minutos por cada minuto real; al agotarla, GitHub cancela
+# todas las ejecuciones de golpe. En un repositorio **público** los runners
+# estándar son gratis e ilimitados, así que basta con hacerlo público —o
+# ampliar el límite de gasto— para que vuelva a funcionar.
 
 on:
   push:
     branches: [main]
-    # Un cambio de documentación no puede costar un runner de macOS a 10x.
     paths-ignore: ['**.md', 'docs/**', '.gitignore']
   pull_request:
     branches: [main]
@@ -35,13 +43,19 @@ on:
   workflow_dispatch:
     inputs:
       construir_ios:
-        description: 'Compilar también iOS (runner macOS, consume 10x minutos)'
+        description: 'Compilar también iOS (runner macOS: cuesta 10x en repos privados)'
         type: boolean
-        default: true
+        default: false
       omitir_verificacion:
         description: 'Compilar aunque falle el análisis (para sacar un APK con el CI averiado)'
         type: boolean
         default: false
+
+# Al empujar dos veces seguidas, la primera ejecución deja de ser interesante:
+# se cancela en lugar de pagar dos compilaciones completas.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   FLUTTER_VERSION: '3.44.1'
@@ -121,11 +135,21 @@ jobs:
           if-no-files-found: error
 
   # ───────────────────────────────────────────────────────────────────────────
-  # iOS — .ipa SIN FIRMAR. Independiente: su fallo no afecta al APK.
+  # iOS — .ipa SIN FIRMAR. **Sólo a petición**, nunca en un push.
+  #
+  # El runner de macOS se factura a 10x. En un repositorio privado, dos o tres
+  # compilaciones de iOS al día agotan la cuota mensual gratuita, y cuando eso
+  # ocurre GitHub cancela TODOS los trabajos nada más empezar —sin ejecutar un
+  # solo paso—, así que te quedas también sin APK. Ese es exactamente el aspecto
+  # que tuvo la ejecución #12.
+  #
+  # Y el .ipa resultante rinde poco: sin cuenta de Apple de pago sólo se instala
+  # con Sideloadly, caduca a los 7 días y compite con el tope de 3 apps. No
+  # justifica pagarlo en cada push: se pide con la casilla cuando hace falta.
   # ───────────────────────────────────────────────────────────────────────────
   ios:
     name: IPA iOS (sin firmar)
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.construir_ios }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.construir_ios }}
     runs-on: macos-latest
     timeout-minutes: 45
     steps:
