@@ -41,20 +41,38 @@ try {
 }
 
 /**
- * `exclusive: true` es imprescindible en Windows.
+ * Escucha en DOBLE PILA (IPv6 + IPv4) salvo que se pida otra cosa.
  *
- * Node activa SO_REUSEADDR por defecto y Windows, a diferencia de Linux,
- * permite que un segundo proceso se enlace a un puerto YA ocupado. El proceso
- * arranca, imprime "escuchando" y no recibe una sola petición: el tráfico se lo
- * queda el que llegó primero. Con `exclusive` el conflicto sale como
- * EADDRINUSE, que es lo que uno espera.
+ * `0.0.0.0` es el comodín de **IPv4 solamente**. Parece que escucha «en todas
+ * partes», pero un proxy que se conecte por IPv6 —lo normal en alojamientos
+ * modernos como alwaysdata, cuya red es IPv6 nativa— se encuentra la puerta
+ * cerrada y el usuario ve un 502 «connection failure», con el proceso vivo y
+ * los logs diciendo que todo está bien. Es de los fallos más difíciles de ver.
+ *
+ * Omitir `host` hace que Node se enlace a `::`, que acepta IPv6 y también IPv4
+ * (mapeado). `HOST` sólo se fija para restringir la escucha a propósito.
+ *
+ * `exclusive: true` es imprescindible en Windows. Node activa SO_REUSEADDR por
+ * defecto y Windows, a diferencia de Linux, permite que un segundo proceso se
+ * enlace a un puerto YA ocupado: arranca, imprime "escuchando" y no recibe una
+ * sola petición porque el tráfico se lo queda el primero. Con `exclusive` el
+ * conflicto sale como EADDRINUSE, que es lo que uno espera.
  */
-const servidor = app.listen({ port: env.PORT, host: '0.0.0.0', exclusive: true }, () => {
-  logger.info(`API escuchando en http://localhost:${env.PORT}`);
-  logger.info(`  Salud:  http://localhost:${env.PORT}/health`);
-  logger.info(`  Base:   /api/v1`);
-  logger.info(`  Zona de negocio: ${env.BUSINESS_TIMEZONE} · Moneda: ${env.CURRENCY}`);
-});
+const servidor = app.listen(
+  { port: env.PORT, exclusive: true, ...(env.HOST ? { host: env.HOST } : {}) },
+  () => {
+    const dir = servidor.address();
+    // Se registra la dirección REAL, no la que creemos: es el dato que dice si
+    // el proxy va a poder alcanzarnos.
+    logger.info(
+      `API escuchando en ${dir.address}:${dir.port} (${dir.family})` +
+        (dir.family === 'IPv6' ? ' — acepta IPv6 e IPv4' : ' — SÓLO IPv4'),
+    );
+    logger.info(`  Salud:  http://localhost:${env.PORT}/health`);
+    logger.info(`  Base:   /api/v1`);
+    logger.info(`  Zona de negocio: ${env.BUSINESS_TIMEZONE} · Moneda: ${env.CURRENCY}`);
+  },
+);
 
 servidor.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {

@@ -55,8 +55,35 @@ Sólo hay tres causas posibles:
 | Causa | Cómo se reconoce | Solución |
 |---|---|---|
 | **El proceso murió al arrancar** | El log termina en `Upstream starting failed: npm start (return code: 1)`. | Casi siempre es la base de datos: ve a §0. |
+| **Escucha sólo en IPv4** | El log dice `SÓLO IPv4`. Todo lo demás parece correcto. | Ver el recuadro de abajo. |
 | **El proceso no está corriendo** | Arrancaste `npm start` a mano por SSH y cerraste la sesión. El log muestra el arranque pero nada después. | Configúralo como *sitio* en el panel para que alwaysdata lo mantenga vivo y lo reinicie solo (§2). |
-| **Puerto distinto** | El log dice `escuchando en …:8100` pero el sitio del panel apunta a otro puerto. | Que coincidan el campo «Puerto» del panel y `PORT` del `.env` del servidor. |
+| **Puerto distinto** | El log dice `escuchando en …:8100` pero el sitio del panel apunta a otro puerto. | Que coincidan el campo «Puerto» del panel y el `PORT` del entorno. |
+
+### IPv4 contra IPv6: el 502 que parece imposible
+
+Éste es el peor de todos, porque **todo el log dice que la app está bien**: base conectada, API
+escuchando, cero errores. Y aun así, 502.
+
+`0.0.0.0` **no significa «todas las interfaces»: es el comodín de IPv4 solamente.** La red de
+alwaysdata es IPv6 nativa (se ve en cuanto algo revela la dirección de tu servidor web:
+`2a00:b6e0:…`). Si el proxy llama a tu proceso por IPv6 y éste sólo escucha en IPv4, la conexión se
+rechaza y el usuario ve `Connection to upstream failed`.
+
+Comprobado sobre dos servidores idénticos salvo por el bind:
+
+| Bind | Petición IPv4 | Petición IPv6 |
+|---|---|---|
+| `host: '0.0.0.0'` | `200` | **conexión rechazada** ← el 502 |
+| sin `host` (doble pila, `::`) | `200` | `200` |
+
+El servidor ya no fija `host`, así que Node se enlaza a `::` y atiende ambas. El log lo dice en cada
+arranque:
+
+```
+API escuchando en :::8100 (IPv6) — acepta IPv6 e IPv4
+```
+
+Si alguna vez lees `— SÓLO IPv4`, es que alguien puso `HOST` en el entorno. Bórralo.
 
 Comprobación desde tu máquina:
 
@@ -156,6 +183,39 @@ Para actualizar más adelante:
 ```bash
 cd ~/www/AppInventario && git pull && cd backend && npm ci --omit=dev
 # y reiniciar el sitio desde el panel
+```
+
+### Si `git pull` dice «not a git repository»
+
+Significa que los archivos se subieron a mano (FTP, SFTP, copiar y pegar) en vez de clonarse, así
+que no hay historial que actualizar.
+
+**No intentes convertir `~/www` en un clon moviendo carpetas**: el repositorio contiene `backend/`,
+`mobile/` y `docs/`, así que el `.git` vive en la raíz. Si sacas sólo `backend/` de ahí, te quedas
+otra vez sin repositorio. Lo limpio es clonar entero y apuntar el sitio a la subcarpeta:
+
+```bash
+cd ~
+git clone https://github.com/DiBeltran95/AppInventario.git
+
+cp www/.env AppInventario/backend/.env      # recupera tu configuración
+cd AppInventario/backend
+npm install
+
+npm run db:ping                             # comprueba antes de cambiar nada
+```
+
+Si sale en verde, en el panel cambia el **directorio de trabajo** del sitio a:
+
+```
+/home/inventarios/AppInventario/backend
+```
+
+Reinicia, confirma que responde, y sólo entonces borra el `~/www` viejo. A partir de ahí, actualizar
+es:
+
+```bash
+cd ~/AppInventario && git pull && cd backend && npm install
 ```
 
 ---

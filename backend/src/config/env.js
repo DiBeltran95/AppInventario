@@ -14,6 +14,11 @@ const bool = z
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
+
+  /// Interfaz de escucha. Vacío = doble pila (IPv6 + IPv4), que es lo que hace
+  /// falta detrás de un proxy que puede llamar por cualquiera de las dos.
+  /// Sólo se fija para restringir la escucha a propósito (p. ej. '127.0.0.1').
+  HOST: z.string().optional(),
   CORS_ORIGINS: z.string().default(''),
 
   DB_HOST: z.string().min(1),
