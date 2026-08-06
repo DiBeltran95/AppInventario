@@ -164,6 +164,12 @@ try {
 
   // ── 6. IDEMPOTENCIA DE VENTA — la prueba crítica ──────────────────────────
   seccion('6. Venta offline e IDEMPOTENCIA (prueba crítica)');
+  // Línea base: esta base de datos es la REAL del negocio y puede tener ventas
+  // del día. Comprobar «ventas de hoy === 0» sólo funcionaría con la base
+  // recién sembrada, así que se mide el DELTA.
+  const ventasHoyBase = Number(
+    (await api('GET', '/api/v1/reportes/dashboard')).json.data.resumen.ventas_hoy,
+  );
   const stockColaAntes = Number(trasNegativa.json.data.stock_actual);
   const stockArrozAntes = Number(arroz.stock_actual);
 
@@ -327,8 +333,9 @@ try {
   afirmar(Array.isArray(dash.json.data.serie_14_dias), 'Incluye serie de 14 días');
   afirmar(Array.isArray(dash.json.data.stock_bajo), `Detecta ${dash.json.data.stock_bajo.length} productos con stock bajo`);
   afirmar(
-    Number(dash.json.data.resumen.ventas_hoy) === 0,
-    `La venta anulada NO cuenta en las ventas de hoy (${dash.json.data.resumen.ventas_hoy})`,
+    Number(dash.json.data.resumen.ventas_hoy) === ventasHoyBase,
+    'Tras anular, las ventas de hoy vuelven al valor previo '
+      + `(base ${ventasHoyBase}, ahora ${dash.json.data.resumen.ventas_hoy})`,
   );
 
   const valor = await api('GET', '/api/v1/reportes/valorizacion');
@@ -337,8 +344,20 @@ try {
   // ── 11. Roles ─────────────────────────────────────────────────────────────
   seccion('11. Control de acceso por rol');
   const tokenAdmin = token;
+
+  // Se crea un vendedor desechable en lugar de usar el sembrado: su contraseña
+  // pudo cambiarse desde la app, y entonces el test fallaría por un motivo que
+  // no tiene nada que ver con lo que pretende comprobar.
+  const emailVend = `smoke-vendedor-${Date.now()}@inventario.local`;
+  const passVend = 'SmokeVend1234';
+  const vendCreado = await api('POST', '/api/v1/auth/usuarios', {
+    nombre: 'Vendedor de prueba', email: emailVend, password: passVend, rol: 'VENDEDOR',
+  });
+  afirmar(vendCreado.status === 201, 'ADMIN puede crear un empleado vendedor');
+  const uuidVendPrueba = vendCreado.json.data.uuid;
+
   const loginVend = await api('POST', '/api/v1/auth/login', {
-    email: 'vendedor@inventario.local', password: 'Vendedor1234',
+    email: emailVend, password: passVend,
   });
   token = loginVend.json.data.access_token;
 
@@ -375,6 +394,84 @@ try {
 
   const noExiste = await api('GET', '/api/v1/nope', null, { esperarError: true });
   afirmar(noExiste.status === 404 && noExiste.json.error.codigo === 'RUTA_NO_ENCONTRADA', 'Ruta inexistente -> 404 con formato de error');
+
+  // ── 13. BARRERA DE ROL EN /sync/push (antifraude) ─────────────────────────
+  // Es la prueba más importante de esta sección: las rutas REST llevan
+  // `soloAdmin`, pero la app offline-first manda TODO por /sync/push. Si el push
+  // no comprobara el rol, la protección entera sería decorativa.
+  seccion('13. Barrera de rol en la sincronización');
+  const tokenAdmin2 = token;
+  const loginV = await api('POST', '/api/v1/auth/login', {
+    email: emailVend, password: passVend,
+    dispositivo: { uuid: randomUUID(), nombre: 'Caja de prueba', plataforma: 'node' },
+  });
+  token = loginV.json.data.access_token;
+
+  const prohibidas = [
+    ['PRODUCTO_CREAR', { uuid: randomUUID(), sku: `HACK-${Date.now()}`, nombre: 'Producto pirata' }],
+    ['MOVIMIENTO_CREAR', { uuid: randomUUID(), producto_uuid: cola.uuid, tipo: 'ENTRADA', cantidad: '500.000' }],
+    ['CONTEO_AJUSTAR', { uuid: randomUUID(), producto_uuid: cola.uuid, stock_contado: '0.000' }],
+    ['PRODUCTO_ACTUALIZAR', { uuid: cola.uuid, precio_venta: '1.00' }],
+    ['VENTA_ANULAR', { venta_uuid: randomUUID(), motivo: 'no deberia poder' }],
+  ];
+
+  for (const [tipo, payload] of prohibidas) {
+    const r = await api('POST', '/api/v1/sync/push', {
+      operaciones: [{ client_op_id: randomUUID(), tipo, payload }],
+    });
+    const res = r.json.data.resultados[0];
+    afirmar(
+      res.estado === 'ERROR' && res.error?.codigo === 'SIN_PERMISO',
+      `VENDEDOR no puede ${tipo} por sync -> SIN_PERMISO`,
+      JSON.stringify(res.error ?? res),
+    );
+  }
+
+  // Y lo que SÍ debe poder hacer.
+  const ventaV = await api('POST', '/api/v1/sync/push', {
+    operaciones: [{
+      client_op_id: randomUUID(),
+      tipo: 'VENTA_CREAR',
+      payload: {
+        uuid: randomUUID(), metodo_pago: 'EFECTIVO', creada_offline: true,
+        lineas: [{ producto_uuid: cola.uuid, cantidad: '1.000', precio_unitario: '2500.00' }],
+      },
+    }],
+  });
+  afirmar(
+    ventaV.json.data.resultados[0].estado === 'OK',
+    'VENDEDOR SÍ puede registrar una venta por sync',
+    JSON.stringify(ventaV.json.data.resultados[0].error ?? {}),
+  );
+
+  // Las rutas REST equivalentes también.
+  const movRest = await api('POST', '/api/v1/inventario/movimientos',
+    { producto_uuid: cola.uuid, tipo: 'ENTRADA', cantidad: '99.000' }, { esperarError: true });
+  afirmar(movRest.status === 403, 'VENDEDOR no puede cargar inventario por REST -> 403');
+
+  const conteoRest = await api('POST', '/api/v1/inventario/conteo',
+    { producto_uuid: cola.uuid, stock_contado: '0.000' }, { esperarError: true });
+  afirmar(conteoRest.status === 403, 'VENDEDOR no puede ajustar el conteo -> 403');
+
+  const empleadosV = await api('GET', '/api/v1/reportes/por-empleado', null, { esperarError: true });
+  afirmar(empleadosV.status === 403, 'VENDEDOR no ve el control de cajas -> 403');
+
+  token = tokenAdmin2;
+  const empleadosA = await api('GET', '/api/v1/reportes/por-empleado?periodo=mes');
+  afirmar(Array.isArray(empleadosA.json.data), 'ADMIN sí ve el control de cajas');
+  afirmar(
+    empleadosA.json.data.some((e) => e.email === emailVend),
+    'El reporte incluye al vendedor',
+  );
+  const filaV = empleadosA.json.data.find((e) => e.email === emailVend);
+  afirmar(
+    filaV && Number(filaV.num_ventas) >= 1,
+    `Registra las ventas del vendedor (${filaV?.num_ventas})`,
+  );
+
+  // Limpieza: el vendedor de prueba se da de baja lógica para no ensuciar el
+  // control de cajas del negocio.
+  await api('DELETE', `/api/v1/auth/usuarios/${uuidVendPrueba}`);
 } catch (err) {
   console.error(`\n${c.red}Error no controlado:${c.reset}`, err.message);
   fallos += 1;

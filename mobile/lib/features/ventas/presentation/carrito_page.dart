@@ -9,6 +9,7 @@ import '../../../core/money/money.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/estados.dart';
+import '../../auth/presentation/auth_providers.dart';
 import 'carrito_provider.dart';
 import 'widgets/hoja_cobro.dart';
 import 'widgets/venta_exitosa.dart';
@@ -110,13 +111,25 @@ class CarritoPage extends ConsumerWidget {
   }
 
   Future<void> _cobrar(BuildContext context, WidgetRef ref, CarritoEstado carrito) async {
-    final pago = await showModalBottomSheet<ResultadoCobro>(
+    // La hoja devuelve un `ResultadoCobro` si se confirma, o una `SalidaCobro`
+    // si el usuario se sale. `Object?` porque son dos tipos distintos y
+    // distinguirlos es justo lo que permite volver al escáner.
+    final resultado = await showModalBottomSheet<Object?>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (_) => HojaCobro(total: carrito.total),
     );
-    if (pago == null || !context.mounted) return;
+    if (!context.mounted) return;
+
+    if (resultado == SalidaCobro.seguirAgregando) {
+      volverAlEscaner(context);
+      return;
+    }
+    // `volverAlCarrito` y el cierre por gesto (null) hacen lo mismo: quedarse
+    // aquí con el carrito intacto.
+    if (resultado is! ResultadoCobro) return;
+    final pago = resultado;
 
     final notifier = ref.read(carritoProvider.notifier);
     notifier.fijarMetodoPago(pago.metodo);
@@ -160,6 +173,12 @@ class _FilaCarrito extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final notifier = ref.read(carritoProvider.notifier);
 
+    // Cambiar el precio de una línea es un vector de robo directo: se vende a
+    // $1 lo que vale $10.000 y se guarda la diferencia. El vendedor cobra al
+    // precio del catálogo, sin excepciones; los descuentos los autoriza quien
+    // responde por la caja.
+    final puedeEditarPrecio = ref.watch(esAdminProvider);
+
     final tarjeta = Dismissible(
       key: ValueKey(linea.productoUuid),
       direction: DismissDirection.endToStart,
@@ -195,7 +214,9 @@ class _FilaCarrito extends ConsumerWidget {
                         ),
                         const SizedBox(height: 2),
                         GestureDetector(
-                          onTap: () => _editarPrecio(context, notifier),
+                          onTap: puedeEditarPrecio
+                              ? () => _editarPrecio(context, notifier)
+                              : null,
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import * as servicio from './service.js';
 import { validar } from '../../middleware/validate.js';
 import { autenticar } from '../../middleware/auth.js';
-import { ocultarCostos } from '../../middleware/rbac.js';
+import { ocultarCostos, soloAdmin } from '../../middleware/rbac.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { ok, lista } from '../../utils/responder.js';
 import { rangoPeriodo } from '../../utils/dates.js';
@@ -70,6 +70,29 @@ router.get(
     const rango = rangoSchema.parse(resto);
     const items = await servicio.topProductos({ ...rango, limite, por });
     lista(res, ocultarCostos(items, req.usuario.rol), { ...rango, por });
+  }),
+);
+
+/**
+ * GET /reportes/por-empleado — control de cajas. **Sólo ADMIN.**
+ *
+ * Un vendedor no debe poder comparar su rendimiento con el de sus compañeros ni
+ * ver los márgenes del negocio, así que la ruta entera queda cerrada en lugar de
+ * filtrar columnas.
+ */
+router.get(
+  '/por-empleado',
+  soloAdmin,
+  validar({
+    query: z.object({
+      periodo: z.enum(['hoy', 'ayer', 'semana', 'mes', 'trimestre', 'anio']).optional(),
+      desde: fecha.optional(),
+      hasta: fecha.optional(),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const rango = rangoSchema.parse(req.validated.query);
+    lista(res, await servicio.ventasPorEmpleado(rango), rango);
   }),
 );
 

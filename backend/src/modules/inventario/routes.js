@@ -71,18 +71,32 @@ router.get(
   }),
 );
 
-/** Entrada de mercancía y demás movimientos manuales. */
+/**
+ * Entrada de mercancía y demás movimientos manuales. **Sólo ADMIN.**
+ *
+ * Un vendedor no puede tocar el inventario. No es una restricción de comodidad:
+ * cargar existencias o registrar una MERMA es exactamente lo que se hace para
+ * cuadrar un stock del que falta mercancía, así que dárselo a quien despacha
+ * anula el control de inventario.
+ */
 router.post(
   '/movimientos',
+  soloAdmin,
   validar({ body: movimientoSchema }),
   asyncHandler(async (req, res) => {
     creado(res, await withTransaction((c) => servicio.crearMovimiento(c, req.body, contexto(req))));
   }),
 );
 
-/** Ajuste por conteo físico: se envía lo contado, no la diferencia. */
+/**
+ * Ajuste por conteo físico: se envía lo contado, no la diferencia. **Sólo ADMIN.**
+ *
+ * Es la operación más sensible del sistema: reescribe el stock a lo que diga el
+ * usuario, sin dejar rastro de qué se perdió.
+ */
 router.post(
   '/conteo',
+  soloAdmin,
   validar({ body: conteoSchema }),
   asyncHandler(async (req, res) => {
     ok(res, await withTransaction((c) => servicio.ajustarPorConteo(c, req.body, contexto(req))));

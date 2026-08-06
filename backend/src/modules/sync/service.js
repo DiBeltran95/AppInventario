@@ -3,6 +3,7 @@ import { withTransaction, txQueryOne, txExecute } from '../../db/tx.js';
 import { ApiError } from '../../utils/ApiError.js';
 import { logger } from '../../utils/logger.js';
 import { env } from '../../config/env.js';
+import { ROLES } from '../../config/constants.js';
 import { CONSULTAS, ENTIDADES } from './pullQueries.js';
 import { sumarDias, diaHabil } from '../../utils/dates.js';
 
@@ -41,6 +42,43 @@ const MANEJADORES = {
   VENTA_CREAR: (conn, p, ctx) => ventas.crearVenta(conn, p, ctx),
   VENTA_ANULAR: (conn, p, ctx) => ventas.anularVenta(conn, p, ctx),
 };
+
+/**
+ * Rol mínimo por tipo de operación. **Es la barrera antifraude del sistema.**
+ *
+ * Sin este mapa, `/sync/push` era un túnel que sorteaba TODA la autorización:
+ * las rutas REST llevan `soloAdmin`, pero el push llamaba a los mismos
+ * servicios sin comprobar el rol. Y como la app es offline-first y todo lo real
+ * viaja por el push, la protección de roles estaba efectivamente desactivada:
+ * un dispositivo con sesión de VENDEDOR podía crear productos, ajustar
+ * existencias o anular ventas.
+ *
+ * Regla de negocio: el vendedor SOLO vende. Cualquier cosa que altere el
+ * inventario o borre dinero de la caja exige ADMIN, porque son precisamente las
+ * operaciones con las que se tapa un robo:
+ *   · `MOVIMIENTO_CREAR` / `CONTEO_AJUSTAR` → cuadrar el stock que falta
+ *   · `VENTA_ANULAR` → anular una venta cobrada y quedarse el efectivo
+ *   · `PRODUCTO_ACTUALIZAR` → bajar el precio antes de vender
+ */
+const ROL_MINIMO = Object.freeze({
+  PRODUCTO_CREAR: ROLES.ADMIN,
+  PRODUCTO_ACTUALIZAR: ROLES.ADMIN,
+  PRODUCTO_ELIMINAR: ROLES.ADMIN,
+  CODIGO_CREAR: ROLES.ADMIN,
+  CODIGO_ELIMINAR: ROLES.ADMIN,
+  CATEGORIA_CREAR: ROLES.ADMIN,
+  CATEGORIA_ACTUALIZAR: ROLES.ADMIN,
+  CATEGORIA_ELIMINAR: ROLES.ADMIN,
+  PROVEEDOR_CREAR: ROLES.ADMIN,
+  PROVEEDOR_ACTUALIZAR: ROLES.ADMIN,
+  PROVEEDOR_ELIMINAR: ROLES.ADMIN,
+  MOVIMIENTO_CREAR: ROLES.ADMIN,
+  CONTEO_AJUSTAR: ROLES.ADMIN,
+  VENTA_ANULAR: ROLES.ADMIN,
+
+  // Lo único que puede hacer un vendedor: vender.
+  VENTA_CREAR: null,
+});
 
 const ENTIDAD_DE = {
   PRODUCTO_CREAR: 'productos', PRODUCTO_ACTUALIZAR: 'productos', PRODUCTO_ELIMINAR: 'productos',
@@ -104,7 +142,28 @@ async function procesarOperacion(op, ctx) {
     return registrarRechazo(op, ctx, new ApiError(400, 'TIPO_DESCONOCIDO', `Operación no soportada: ${tipo}`));
   }
 
-  // ── 2. Aplicar el efecto y memorizar el resultado EN LA MISMA TRANSACCIÓN ──
+  // ── 2. ¿El rol puede hacer esto? ──────────────────────────────────────────
+  // Se comprueba ANTES de abrir la transacción. El rechazo es permanente a
+  // propósito: la operación sale de la cola del dispositivo y aparece en
+  // «Elementos con problema», de modo que queda rastro de que alguien intentó
+  // una operación que no le corresponde.
+  if (ROL_MINIMO[tipo] === ROLES.ADMIN && ctx.rol !== ROLES.ADMIN) {
+    logger.warn(
+      { usuario: ctx.usuarioUuid, dispositivo: ctx.dispositivoUuid, tipo },
+      'Operación de sincronización rechazada por rol insuficiente',
+    );
+    return registrarRechazo(
+      op,
+      ctx,
+      new ApiError(
+        403,
+        'SIN_PERMISO',
+        `Tu rol (${ctx.rol}) no puede ejecutar ${tipo}. Pídelo a un administrador.`,
+      ),
+    );
+  }
+
+  // ── 3. Aplicar el efecto y memorizar el resultado EN LA MISMA TRANSACCIÓN ──
   // Si el efecto se confirmara y el registro de idempotencia no, un reintento
   // volvería a aplicarlo. Van juntos o no van.
   try {

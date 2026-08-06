@@ -13,6 +13,7 @@ import '../../features/inventario/presentation/movimientos_page.dart';
 import '../../features/productos/presentation/producto_detalle_page.dart';
 import '../../features/productos/presentation/producto_form_page.dart';
 import '../../features/productos/presentation/productos_page.dart';
+import '../../features/reportes/presentation/empleados_page.dart';
 import '../../features/reportes/presentation/reportes_page.dart';
 import '../../features/scanner/domain/modo_escaner.dart';
 import '../../features/scanner/presentation/scanner_page.dart';
@@ -41,6 +42,7 @@ class Rutas {
   static const ajustes = '/ajustes';
   static const pendientes = '/pendientes';
   static const usuarios = '/usuarios';
+  static const empleados = '/empleados';
   static const productoNuevo = '/productos/nuevo';
 
   static String productoDetalle(String uuid) => '/productos/$uuid';
@@ -59,6 +61,25 @@ final _navegadorShell = GlobalKey<NavigatorState>(debugLabel: 'shell');
 /// —y no `PageRoute`— para que también avise cuando se abre una hoja inferior
 /// encima, como la rejilla de venta rápida.
 final observadorRutas = RouteObserver<ModalRoute<dynamic>>();
+
+/// Rutas reservadas al administrador.
+///
+/// El criterio no es «funciones avanzadas», es **qué permite tapar un robo**:
+/// cargar existencias, ajustar un conteo, cambiar precios o anular ventas. El
+/// vendedor vende; nada más toca el inventario ni la caja.
+const _prefijosSoloAdmin = [
+  Rutas.entrada, // cargar mercancía
+  Rutas.movimientos, // kardex completo
+  Rutas.reportes, // márgenes y costos del negocio
+  Rutas.usuarios, // gestión de empleados
+  Rutas.empleados, // control de cajas
+];
+
+bool _esRutaSoloAdmin(String ubicacion) {
+  if (_prefijosSoloAdmin.any((p) => ubicacion.startsWith(p))) return true;
+  // Alta y edición de productos, en cualquiera de sus formas.
+  return ubicacion.endsWith('/nuevo') || ubicacion.endsWith('/editar');
+}
 
 /// Vuelve al escáner **sin apilar otra pantalla de cámara**.
 ///
@@ -93,6 +114,18 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       if (!autenticado && !enLogin) return Rutas.login;
       if (autenticado && enLogin) return Rutas.dashboard;
+
+      // Barrera de rol en el enrutador.
+      //
+      // Ocultar los botones no basta: la ruta se puede alcanzar por un enlace
+      // profundo, por el historial o por un `push` que se cuele en otra
+      // pantalla. El servidor ya rechaza estas operaciones (ver
+      // ROL_MINIMO en backend/src/modules/sync/service.js), pero dejar entrar
+      // al vendedor a un formulario que nunca podrá guardar es cruel.
+      if (autenticado && !(sesion.value?.esAdmin ?? false)) {
+        if (_esRutaSoloAdmin(estado.matchedLocation)) return Rutas.dashboard;
+      }
+
       return null;
     },
     routes: [
@@ -157,6 +190,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: Rutas.pendientes,
         parentNavigatorKey: _navegadorRaiz,
         builder: (context, estado) => const PendientesPage(),
+      ),
+      GoRoute(
+        path: Rutas.empleados,
+        parentNavigatorKey: _navegadorRaiz,
+        builder: (context, estado) => const EmpleadosPage(),
       ),
       GoRoute(
         path: Rutas.usuarios,

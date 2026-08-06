@@ -61,6 +61,46 @@ export async function topProductos({ desde, hasta, limite = 10, por = 'unidades'
   );
 }
 
+/**
+ * Ventas por empleado. Es la vista de control cuando hay varias cajas.
+ *
+ * Se incluyen los empleados SIN ventas (LEFT JOIN) a propósito: un vendedor que
+ * estuvo en turno y no registró nada es justo lo que hay que ver.
+ *
+ * `anuladas` no es decorativo: anular una venta ya cobrada y quedarse el
+ * efectivo es el fraude clásico en caja. Aunque anular exige rol ADMIN, la
+ * columna deja ver de un vistazo si las anulaciones se concentran en el turno de
+ * alguien.
+ */
+export async function ventasPorEmpleado({ desde, hasta }) {
+  return query(
+    `SELECT u.uuid, u.nombre, u.email, u.rol, u.activo, u.ultimo_acceso,
+            COUNT(v.id)                                  AS num_ventas,
+            COALESCE(SUM(v.total), 0)                    AS total,
+            COALESCE(ROUND(AVG(v.total), 2), 0)          AS ticket_promedio,
+            COALESCE(SUM(v.total - v.costo_total), 0)    AS margen,
+            COALESCE(SUM(v.creada_offline), 0)           AS creadas_offline,
+            MAX(v.fecha)                                 AS ultima_venta,
+            (SELECT COUNT(*) FROM ventas a
+              WHERE a.usuario_id = u.id
+                AND a.estado = 'ANULADA'
+                AND a.anula_a_venta_id IS NULL
+                AND a.deleted_at IS NULL
+                AND a.fecha_local BETWEEN ? AND ?)       AS anuladas
+       FROM usuarios u
+       LEFT JOIN ventas v
+              ON v.usuario_id = u.id
+             AND v.estado = 'COMPLETADA'
+             AND v.deleted_at IS NULL
+             AND v.anula_a_venta_id IS NULL
+             AND v.fecha_local BETWEEN ? AND ?
+      WHERE u.deleted_at IS NULL
+      GROUP BY u.id, u.uuid, u.nombre, u.email, u.rol, u.activo, u.ultimo_acceso
+      ORDER BY total DESC, u.nombre ASC`,
+    [desde, hasta, desde, hasta],
+  );
+}
+
 export async function stockBajo({ limite = 50 } = {}) {
   return query('SELECT * FROM v_productos_stock_bajo LIMIT ?', [limite]);
 }

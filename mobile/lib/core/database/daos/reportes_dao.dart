@@ -72,6 +72,50 @@ class ProductoVendido {
   final Money margen;
 }
 
+/// Rendimiento de un empleado en un periodo.
+class RendimientoEmpleado {
+  const RendimientoEmpleado({
+    required this.uuid,
+    required this.nombre,
+    required this.email,
+    required this.rol,
+    required this.activo,
+    required this.numVentas,
+    required this.total,
+    required this.margen,
+    required this.ticketPromedio,
+    required this.creadasOffline,
+    required this.anuladas,
+    this.ultimaVenta,
+  });
+
+  final String uuid;
+  final String nombre;
+  final String email;
+  final String rol;
+  final bool activo;
+  final int numVentas;
+  final Money total;
+  final Money margen;
+  final Money ticketPromedio;
+
+  /// Cuántas de sus ventas se registraron sin conexión. Un número muy alto en
+  /// una tienda con buen wifi merece una pregunta.
+  final int creadasOffline;
+
+  /// Ventas suyas que acabaron anuladas. Anular una venta ya cobrada y quedarse
+  /// el efectivo es el fraude clásico de caja: aquí se ve concentrado por turno.
+  final int anuladas;
+
+  final DateTime? ultimaVenta;
+
+  bool get esAdmin => rol == 'ADMIN';
+  bool get sinActividad => numVentas == 0;
+
+  /// Señal de que conviene mirar este turno con detalle.
+  bool get requiereAtencion => anuladas > 0;
+}
+
 class ReportesDao {
   ReportesDao(this.db);
 
@@ -233,6 +277,74 @@ class ReportesDao {
                   margen: Money(f.read<int>('margen')),
                 ))
             .toList());
+  }
+
+  /// Rendimiento por empleado. Es la vista de control cuando hay varias cajas.
+  ///
+  /// Se calcula **en local** sobre las ventas ya sincronizadas, como el resto de
+  /// los reportes: el dueño puede revisar los turnos sin depender de la red.
+  ///
+  /// Se incluyen los empleados SIN ventas a propósito (`LEFT JOIN`): alguien que
+  /// estuvo en turno y no registró nada es exactamente lo que hay que ver.
+  Stream<List<RendimientoEmpleado>> observarPorEmpleado({
+    String? desde,
+    String? hasta,
+  }) {
+    final d = desde ?? Fechas.inicioMes();
+    final h = hasta ?? Fechas.hoy();
+
+    return db
+        .customSelect(
+          '''
+          SELECT u.uuid, u.nombre, u.email, u.rol, u.activo,
+                 COUNT(v.uuid)                                      AS num_ventas,
+                 COALESCE(SUM(v.total), 0)                          AS total,
+                 COALESCE(SUM(v.total - v.costo_total), 0)          AS margen,
+                 COALESCE(SUM(CASE WHEN v.creada_offline = 1 THEN 1 ELSE 0 END), 0)
+                                                                    AS offline,
+                 MAX(v.fecha)                                       AS ultima_venta,
+                 (SELECT COUNT(*) FROM ventas a
+                   WHERE a.usuario_uuid = u.uuid
+                     AND a.estado = 'ANULADA'
+                     AND a.anula_a_venta_uuid IS NULL
+                     AND a.deleted_at IS NULL
+                     AND a.fecha_local BETWEEN ? AND ?)             AS anuladas
+            FROM usuarios u
+            LEFT JOIN ventas v
+                   ON v.usuario_uuid = u.uuid
+                  AND v.estado = 'COMPLETADA'
+                  AND v.deleted_at IS NULL
+                  AND v.anula_a_venta_uuid IS NULL
+                  AND v.fecha_local BETWEEN ? AND ?
+           WHERE u.deleted_at IS NULL
+           GROUP BY u.uuid, u.nombre, u.email, u.rol, u.activo
+           ORDER BY total DESC, u.nombre ASC
+          ''',
+          variables: [
+            Variable<String>(d), Variable<String>(h),
+            Variable<String>(d), Variable<String>(h),
+          ],
+          readsFrom: {db.usuarios, db.ventas},
+        )
+        .watch()
+        .map((filas) => filas.map((f) {
+              final num = f.read<int>('num_ventas');
+              final total = Money(f.read<int>('total'));
+              return RendimientoEmpleado(
+                uuid: f.read<String>('uuid'),
+                nombre: f.read<String>('nombre'),
+                email: f.read<String>('email'),
+                rol: f.read<String>('rol'),
+                activo: f.read<int>('activo') == 1,
+                numVentas: num,
+                total: total,
+                margen: Money(f.read<int>('margen')),
+                ticketPromedio: num > 0 ? Money(total.centavos ~/ num) : const Money.cero(),
+                creadasOffline: f.read<int>('offline'),
+                anuladas: f.read<int>('anuladas'),
+                ultimaVenta: f.read<DateTime?>('ultima_venta'),
+              );
+            }).toList());
   }
 
   /// Ventas agrupadas por día, semana o mes, para la pantalla de reportes.

@@ -14,6 +14,20 @@ class ResultadoCobro {
   final Money? recibido;
 }
 
+/// Cómo salió el usuario de la hoja de cobro.
+///
+/// Hace falta distinguir «me arrepentí» de «quiero añadir otro producto»: en el
+/// mostrador, lo segundo pasa constantemente —el cliente ve algo más junto a la
+/// caja cuando ya estás cobrando— y dejarlo sin salida obligaba a cancelar la
+/// venta entera.
+enum SalidaCobro {
+  /// Volver al carrito y dejarlo como está.
+  volverAlCarrito,
+
+  /// Volver al carrito Y abrir el escáner para seguir añadiendo.
+  seguirAgregando,
+}
+
 /// Hoja de cobro.
 ///
 /// El cálculo de vueltas es lo único que de verdad ocurre aquí. Los botones de
@@ -105,6 +119,30 @@ class _HojaCobroState extends State<HojaCobro> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // Salida explícita. El asa de arrastre no basta: con la hoja a
+              // pantalla casi completa y un scroll dentro, el gesto de bajar se
+              // lo come el scroll, y con el teclado abierto el asa queda fuera
+              // de alcance. Un botón visible siempre funciona.
+              Row(
+                children: [
+                  IconButton(
+                    onPressed: () => Navigator.pop(context, SalidaCobro.volverAlCarrito),
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    tooltip: 'Volver al carrito',
+                  ),
+                  Expanded(
+                    child: Text(
+                      'Cobrar',
+                      textAlign: TextAlign.center,
+                      style: context.textos.titleMedium,
+                    ),
+                  ),
+                  // Reserva el ancho del IconButton para que el título quede
+                  // centrado de verdad.
+                  const SizedBox(width: 48),
+                ],
+              ),
+              const SizedBox(height: 8),
               Center(
                 child: Column(
                   children: [
@@ -205,6 +243,15 @@ class _HojaCobroState extends State<HojaCobro> {
                 icon: const Icon(Icons.check_circle_outline_rounded),
                 label: const Text('Confirmar venta'),
                 style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56)),
+              ),
+              const SizedBox(height: 10),
+              // El caso real que faltaba: ya estás cobrando y el cliente añade
+              // algo más. Antes había que cancelar el cobro a ciegas.
+              OutlinedButton.icon(
+                onPressed: () => Navigator.pop(context, SalidaCobro.seguirAgregando),
+                icon: const Icon(Icons.add_shopping_cart_rounded, size: 18),
+                label: const Text('Agregar otro producto'),
+                style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
               ),
             ],
           ),

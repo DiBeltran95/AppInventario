@@ -326,9 +326,16 @@ class VentasDao {
     String? estado = 'COMPLETADA',
     bool incluirReversas = false,
     String? busqueda,
+    /// Filtra por empleado. Lo usa el control de cajas del administrador, y
+    /// también restringe al vendedor a ver únicamente sus propias ventas.
+    String? usuarioUuid,
     int limite = 200,
   }) {
     final consulta = db.select(db.ventas)..where((t) => t.deletedAt.isNull());
+
+    if (usuarioUuid != null) {
+      consulta.where((t) => t.usuarioUuid.equals(usuarioUuid));
+    }
 
     if (estado != null) {
       consulta.where((t) => t.estado.equals(estado));
