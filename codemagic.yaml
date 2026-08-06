@@ -27,6 +27,8 @@ workflows:
     max_build_duration: 45
     working_directory: mobile
     environment:
+      # Si Codemagic responde que esta versión no está disponible, cámbiala por
+      # `stable`: el proyecto exige Dart ^3.12.1, que trae Flutter 3.44 o mayor.
       flutter: 3.44.1
       java: 17
     scripts:
@@ -46,9 +48,13 @@ workflows:
           flutter build apk --release --build-number=$PROJECT_BUILD_NUMBER
           flutter build apk --release --build-number=$PROJECT_BUILD_NUMBER --split-per-abi
           flutter build appbundle --release --build-number=$PROJECT_BUILD_NUMBER
+    # Comodines amplios a propósito: los patrones de artefactos se resuelven
+    # desde la raíz del clon, no desde `working_directory`, y aquí la app vive
+    # en `mobile/`. Un patrón demasiado específico no encuentra nada y la
+    # compilación termina «con éxito» pero sin binario.
     artifacts:
-      - build/**/outputs/**/*.apk
-      - build/**/outputs/**/*.aab
+      - '**/outputs/**/*.apk'
+      - '**/outputs/**/*.aab'
 
   # ───────────────────────────────────────────────────────────────────────────
   ios:
@@ -57,6 +63,7 @@ workflows:
     max_build_duration: 45
     working_directory: mobile
     environment:
+      # Ver la nota del workflow de Android sobre esta versión.
       flutter: 3.44.1
       xcode: latest
       cocoapods: default
@@ -90,4 +97,4 @@ workflows:
           rm -rf Payload
           ls -lh InventarioPOS-sin-firmar.ipa
     artifacts:
-      - InventarioPOS-sin-firmar.ipa
+      - '**/*.ipa'
