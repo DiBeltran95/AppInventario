@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
@@ -7,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import '../config/app_config.dart';
 import '../database/app_database.dart';
 import '../database/daos/outbox_dao.dart';
+import '../database/daos/productos_dao.dart';
 import '../database/daos/sync_dao.dart';
 import '../database/daos/ventas_dao.dart';
 import '../network/api_client.dart';
@@ -27,12 +29,14 @@ class SyncEngine extends ChangeNotifier {
     required OutboxDao outbox,
     required SyncDao sync,
     required VentasDao ventas,
+    required ProductosDao productos,
     required ConnectivityService conectividad,
   })  : _db = db,
         _api = api,
         _outbox = outbox,
         _sync = sync,
         _ventas = ventas,
+        _productos = productos,
         _conectividad = conectividad;
 
   final AppDatabase _db;
@@ -40,6 +44,7 @@ class SyncEngine extends ChangeNotifier {
   final OutboxDao _outbox;
   final SyncDao _sync;
   final VentasDao _ventas;
+  final ProductosDao _productos;
   final ConnectivityService _conectividad;
 
   EstadoSync _estado = const EstadoSync();
@@ -61,6 +66,7 @@ class SyncEngine extends ChangeNotifier {
     // volverían a salir nunca. Reenviarlas es seguro: el `client_op_id` impide
     // que el servidor las aplique dos veces.
     await _outbox.recuperarEnviandoHuerfanas();
+    await _sync.purgarMovimientosDuplicadosDeVenta();
 
     _subPendientes = _outbox.contarPendientes().listen((n) {
       _fijar(_estado.copyWith(
@@ -144,8 +150,16 @@ class SyncEngine extends ChangeNotifier {
       enviadas = subida.enviadas;
       rechazadas = subida.rechazadas;
 
+      // Las fotos no van en la outbox JSON: se suben por multipart y luego se
+      // encola un PRODUCTO_ACTUALIZAR con la URL pública.
+      await _subirImagenesPendientes();
+      final segunda = await _subir();
+      enviadas += segunda.enviadas;
+      rechazadas += segunda.rechazadas;
+
       _fijar(_estado.copyWith(progresoTexto: 'Descargando…'));
       recibidas = await _bajar();
+      await _sync.purgarMovimientosDuplicadosDeVenta();
 
       await (_db.update(_db.estadoApp)..where((t) => t.id.equals(1)))
           .write(EstadoAppCompanion(ultimoSyncExitoso: Value(DateTime.now().toUtc())));
@@ -229,6 +243,7 @@ class SyncEngine extends ChangeNotifier {
       final completadas = <int>[];
       final ventasOk = <String>[];
       final movimientosOk = <String>[];
+      final ventasParaMovimientos = <String>[];
 
       for (final r in resultados) {
         final fila = porOpId[r['client_op_id']];
@@ -239,6 +254,15 @@ class SyncEngine extends ChangeNotifier {
           enviadas++;
           if (fila.entidad == 'ventas' && fila.entidadUuid != null) {
             ventasOk.add(fila.entidadUuid!);
+            // Los movimientos de la venta (y de su reversa, si es anulación)
+            // no son operaciones independientes: se marcan aquí.
+            ventasParaMovimientos.add(fila.entidadUuid!);
+            final payload = jsonDecode(fila.payload) as Map<String, dynamic>;
+            final reversa = payload['uuid_reversa'] as String?;
+            if (reversa != null) {
+              ventasOk.add(reversa);
+              ventasParaMovimientos.add(reversa);
+            }
           } else if (fila.entidad == 'movimientos_inventario' && fila.entidadUuid != null) {
             movimientosOk.add(fila.entidadUuid!);
           }
@@ -261,6 +285,7 @@ class SyncEngine extends ChangeNotifier {
         await _outbox.completar(completadas);
         await _ventas.marcarSincronizadas(ventasOk);
         await _ventas.marcarMovimientosSincronizados(movimientosOk);
+        await _ventas.marcarMovimientosDeVentasSincronizados(ventasParaMovimientos);
       });
 
       _fijar(_estado.copyWith(progresoTexto: 'Enviado $enviadas…'));
@@ -270,6 +295,33 @@ class SyncEngine extends ChangeNotifier {
     }
 
     return (enviadas: enviadas, rechazadas: rechazadas);
+  }
+
+  /// Sube fotos locales sin `imagen_url` y encola la URL para el resto de cajas.
+  Future<void> _subirImagenesPendientes() async {
+    final pendientes = await _productos.conImagenPendienteDeSubir();
+    if (pendientes.isEmpty) return;
+
+    _fijar(_estado.copyWith(progresoTexto: 'Subiendo fotos…'));
+
+    for (final p in pendientes) {
+      final ruta = p.imagenLocal;
+      if (ruta == null) continue;
+      final archivo = File(ruta);
+      if (!await archivo.exists()) continue;
+
+      try {
+        final respuesta = await _api.subirImagen(archivo);
+        final datos = respuesta['data'];
+        final url = datos is Map ? datos['url'] as String? : null;
+        if (url == null || url.isEmpty) continue;
+
+        await _productos.actualizar(p.uuid, imagenUrl: url, imagenLocal: ruta);
+      } catch (e) {
+        if (kDebugMode) debugPrint('[sync] foto ${p.uuid}: $e');
+        // Se reintenta en la próxima pasada; no tumba el resto del sync.
+      }
+    }
   }
 
   // ── Bajada ────────────────────────────────────────────────────────────────

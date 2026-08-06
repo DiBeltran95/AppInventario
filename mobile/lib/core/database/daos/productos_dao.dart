@@ -479,6 +479,27 @@ class ProductosDao {
     });
   }
 
+  /// Solo actualiza la ruta local (sin outbox). Se usa al mover la foto del
+  /// caché temporal de `image_picker` a Documents.
+  Future<void> fijarImagenLocal(String uuid, String ruta) async {
+    await (db.update(db.productos)..where((t) => t.uuid.equals(uuid))).write(
+      ProductosCompanion(imagenLocal: Value(ruta)),
+    );
+  }
+
+  /// Productos con foto en el dispositivo que aún no tienen URL pública.
+  /// El SyncEngine los sube cuando hay red para que el resto de cajas los vean.
+  Future<List<Producto>> conImagenPendienteDeSubir() {
+    return (db.select(db.productos)
+          ..where(
+            (t) =>
+                t.deletedAt.isNull() &
+                t.imagenLocal.isNotNull() &
+                (t.imagenUrl.isNull() | t.imagenUrl.equals('')),
+          ))
+        .get();
+  }
+
   Future<String> agregarCodigo(String productoUuid, String codigo, String tipo) async {
     final uuid = _uuid.v7();
     await db.transaction(() async {

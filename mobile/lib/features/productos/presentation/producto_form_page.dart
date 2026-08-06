@@ -13,6 +13,7 @@ import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/estados.dart';
 import '../../auth/presentation/auth_providers.dart';
+import '../data/imagen_producto.dart';
 import 'productos_providers.dart';
 
 /// Alta y edición de producto.
@@ -173,6 +174,12 @@ class _ProductoFormPageState extends ConsumerState<ProductoFormPage> {
       final minimo = Cantidad.tryParse(_stockMinimo.text.replaceAll(',', '.'));
 
       if (_esEdicion) {
+        var rutaImagen = _rutaImagen;
+        if (rutaImagen != null) {
+          rutaImagen =
+              await ImagenProducto.persistir(rutaImagen, widget.uuid!) ?? rutaImagen;
+        }
+
         await dao.actualizar(
           widget.uuid!,
           sku: sku,
@@ -185,7 +192,7 @@ class _ProductoFormPageState extends ConsumerState<ProductoFormPage> {
           precioVenta: venta,
           tasaIva: _iva,
           stockMinimo: minimo,
-          imagenLocal: _rutaImagen,
+          imagenLocal: rutaImagen,
           ubicacion: _ubicacion.text.trim(),
         );
 
@@ -209,6 +216,13 @@ class _ProductoFormPageState extends ConsumerState<ProductoFormPage> {
               ? const []
               : [(codigo: _codigo!, tipo: _tipoDe(_codigo!))],
         );
+
+        // La ruta de image_picker es temporal: se copia a Documents para que
+        // sobreviva al reinicio y el SyncEngine pueda subirla después.
+        if (_rutaImagen != null) {
+          final permanente = await ImagenProducto.persistir(_rutaImagen, uuid);
+          if (permanente != null) await dao.fijarImagenLocal(uuid, permanente);
+        }
 
         // El stock inicial es un movimiento, no una columna que se escribe:
         // así queda en el libro con su fecha y su costo, igual que todo lo
@@ -272,6 +286,8 @@ class _ProductoFormPageState extends ConsumerState<ProductoFormPage> {
         key: _formulario,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
+          // Arrastrar la lista también baja el teclado (texto y numérico).
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           children: [
             _SelectorImagen(
               ruta: _rutaImagen,

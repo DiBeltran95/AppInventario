@@ -155,7 +155,6 @@ class _ProductosPageState extends ConsumerState<ProductosPage> {
                     separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (context, i) => TarjetaProducto(
                       item: lista[i],
-                      mostrarCosto: esAdmin,
                       onTap: () => context.push(Rutas.productoDetalle(lista[i].uuid)),
                       onLongPress: () => _hojaAcciones(context, lista[i], esAdmin),
                     )

@@ -7,6 +7,13 @@ export const lineaVentaSchema = z.object({
   producto_uuid: z.string().uuid(),
   cantidad,
   /**
+   * UUID del movimiento de inventario que el dispositivo ya escribió en local.
+   * Sin esto el servidor inventa otro uuid, el pull lo baja como fila nueva y
+   * la app muestra la venta duplicada en el kardex (con nube de sync en la
+   * copia local).
+   */
+  movimiento_uuid: z.string().uuid().optional(),
+  /**
    * Opcionales: si no vienen, se toman del producto en el servidor.
    * Una venta creada sin conexión SÍ debe enviarlos: son el precio y el costo
    * que estaban vigentes en el dispositivo al momento de cobrar, y el ticket ya
@@ -41,6 +48,15 @@ export const crearVentaSchema = z.object({
 export const anularVentaSchema = z.object({
   motivo: z.string().min(3).max(255),
   uuid_reversa: z.string().uuid().optional(),
+  /** UUID del movimiento ANULACION_VENTA por producto, generados en el cliente. */
+  movimientos: z
+    .array(
+      z.object({
+        producto_uuid: z.string().uuid(),
+        movimiento_uuid: z.string().uuid(),
+      }),
+    )
+    .optional(),
   fecha: z.string().datetime({ offset: true }).optional(),
   fecha_local: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   creada_offline: z.boolean().default(false),

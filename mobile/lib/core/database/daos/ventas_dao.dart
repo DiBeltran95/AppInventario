@@ -164,24 +164,14 @@ class VentasDao {
               ),
             );
 
-        lineasPayload.add({
-          'uuid': detalleUuid,
-          'producto_uuid': c.linea.productoUuid,
-          'cantidad': c.linea.cantidad.toApi(),
-          'precio_unitario': c.linea.precioUnitario.toApi(),
-          'costo_unitario': c.linea.costoUnitario.toApi(),
-          'descuento': c.calculo.descuento.toApi(),
-          'tasa_iva': c.linea.tasaIva.toApi(),
-          'descripcion': c.linea.descripcion,
-        });
-        indice++;
-      }
-
-      // 5. Descuento de stock. Se permite quedar en negativo: la mercancía ya
-      //    salió por la puerta y rechazar la venta descuadraría la caja. El
-      //    servidor levantará una alerta de sobreventa al sincronizar.
-      for (final c in calculadas) {
-        await inventario.aplicarMovimientoDeVenta(
+        // 5. Descuento de stock. Se permite quedar en negativo: la mercancía ya
+        //    salió por la puerta y rechazar la venta descuadraría la caja. El
+        //    servidor levantará una alerta de sobreventa al sincronizar.
+        //
+        // El uuid del movimiento VIAJA en el payload: si el servidor inventara
+        // otro, el pull lo bajaría como fila nueva y el kardex mostraría la
+        // venta duplicada (una local con nube + una del servidor).
+        final movimientoUuid = await inventario.aplicarMovimientoDeVenta(
           productoUuid: c.linea.productoUuid,
           tipo: 'VENTA',
           cantidad: c.linea.cantidad,
@@ -192,6 +182,19 @@ class VentasDao {
           motivo: 'Venta $numero',
           fecha: ahora,
         );
+
+        lineasPayload.add({
+          'uuid': detalleUuid,
+          'producto_uuid': c.linea.productoUuid,
+          'cantidad': c.linea.cantidad.toApi(),
+          'precio_unitario': c.linea.precioUnitario.toApi(),
+          'costo_unitario': c.linea.costoUnitario.toApi(),
+          'descuento': c.calculo.descuento.toApi(),
+          'tasa_iva': c.linea.tasaIva.toApi(),
+          'descripcion': c.linea.descripcion,
+          'movimiento_uuid': movimientoUuid,
+        });
+        indice++;
       }
 
       // 6. Encolado — en esta misma transacción, no después.
@@ -261,6 +264,7 @@ class VentasDao {
             ),
           );
 
+      final movimientosPayload = <Map<String, dynamic>>[];
       for (final d in detalles) {
         await db.into(db.ventaDetalles).insert(
               VentaDetallesCompanion.insert(
@@ -282,7 +286,7 @@ class VentasDao {
             );
 
         if (d.productoUuid != null) {
-          await inventario.aplicarMovimientoDeVenta(
+          final movimientoUuid = await inventario.aplicarMovimientoDeVenta(
             productoUuid: d.productoUuid!,
             tipo: 'ANULACION_VENTA',
             cantidad: Cantidad(d.cantidad),
@@ -291,6 +295,10 @@ class VentasDao {
             motivo: 'Anulación de ${venta.numero}: $motivo',
             fecha: ahora,
           );
+          movimientosPayload.add({
+            'producto_uuid': d.productoUuid,
+            'movimiento_uuid': movimientoUuid,
+          });
         }
       }
 
@@ -313,6 +321,7 @@ class VentasDao {
           'fecha': ahora.toIso8601String(),
           'fecha_local': Fechas.diaHabil(ahora),
           'creada_offline': true,
+          'movimientos': movimientosPayload,
         },
       );
     });
@@ -400,6 +409,16 @@ class VentasDao {
     if (uuids.isEmpty) return;
     final ahora = DateTime.now().toUtc();
     await (db.update(db.movimientos)..where((t) => t.uuid.isIn(uuids)))
+        .write(MovimientosCompanion(sincronizadoEn: Value(ahora)));
+  }
+
+  /// Tras un `VENTA_CREAR` / `VENTA_ANULAR` exitoso, los movimientos de esa
+  /// venta no viajan como operación aparte en la outbox: hay que marcarlos
+  /// aquí o el kardex los muestra eternamente con la nube de sync.
+  Future<void> marcarMovimientosDeVentasSincronizados(Iterable<String> ventasUuids) async {
+    if (ventasUuids.isEmpty) return;
+    final ahora = DateTime.now().toUtc();
+    await (db.update(db.movimientos)..where((t) => t.ventaUuid.isIn(ventasUuids)))
         .write(MovimientosCompanion(sincronizadoEn: Value(ahora)));
   }
 }

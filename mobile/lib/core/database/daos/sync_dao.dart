@@ -32,6 +32,30 @@ class SyncDao {
 
   Future<void> reiniciarCursores() => db.delete(db.syncCursores).go();
 
+  /// Elimina movimientos locales huérfanos de ventas ya bajadas del servidor.
+  ///
+  /// Corrige dispositivos que sincronizaron con la versión anterior del bug
+  /// (venta local + movimiento del servidor con otro uuid).
+  Future<int> purgarMovimientosDuplicadosDeVenta() async {
+    return db.customUpdate(
+      '''
+      DELETE FROM movimientos
+      WHERE sincronizado_en IS NULL
+        AND venta_uuid IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM movimientos AS m2
+          WHERE m2.venta_uuid = movimientos.venta_uuid
+            AND m2.producto_uuid = movimientos.producto_uuid
+            AND m2.tipo = movimientos.tipo
+            AND m2.uuid != movimientos.uuid
+            AND m2.sincronizado_en IS NOT NULL
+        )
+      ''',
+      updates: {db.movimientos},
+      updateKind: UpdateKind.delete,
+    );
+  }
+
   // ── Aplicación de la bajada ───────────────────────────────────────────────
 
   /// Aplica un bloque de cambios del servidor.
@@ -308,11 +332,33 @@ class SyncDao {
   Future<int> _aplicarMovimientos(dynamic bloque) async {
     final items = _items(bloque);
     for (final m in items) {
+      final uuid = m['uuid'] as String;
+      final ventaUuid = m['venta_uuid'] as String?;
+      final productoUuid = m['producto_uuid'] as String;
+      final tipo = m['tipo'] as String;
+
+      // Limpieza de duplicados de ventas offline: el cliente escribió el
+      // movimiento con uuid A; versiones viejas del servidor crearon uuid B.
+      // Al bajar B, se borra la copia local A (aún sin sincronizar) para que
+      // el kardex no muestre la misma venta dos veces.
+      if (ventaUuid != null) {
+        await (db.delete(db.movimientos)
+              ..where(
+                (t) =>
+                    t.ventaUuid.equals(ventaUuid) &
+                    t.productoUuid.equals(productoUuid) &
+                    t.tipo.equals(tipo) &
+                    t.uuid.isNotValue(uuid) &
+                    t.sincronizadoEn.isNull(),
+              ))
+            .go();
+      }
+
       await db.into(db.movimientos).insertOnConflictUpdate(
             MovimientosCompanion.insert(
-              uuid: m['uuid'] as String,
-              productoUuid: m['producto_uuid'] as String,
-              tipo: m['tipo'] as String,
+              uuid: uuid,
+              productoUuid: productoUuid,
+              tipo: tipo,
               cantidad: _milesimas(m['cantidad']),
               costoUnitario: Value(
                 m['costo_unitario'] == null ? null : _centavos(m['costo_unitario']),
@@ -326,7 +372,7 @@ class SyncDao {
               stockResultante: Value(
                 m['stock_resultante'] == null ? null : _milesimas(m['stock_resultante']),
               ),
-              ventaUuid: Value(m['venta_uuid'] as String?),
+              ventaUuid: Value(ventaUuid),
               proveedorUuid: Value(m['proveedor_uuid'] as String?),
               usuarioUuid: Value(m['usuario_uuid'] as String?),
               lote: Value(m['lote'] as String?),

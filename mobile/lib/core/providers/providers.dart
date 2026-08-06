@@ -78,6 +78,7 @@ final syncEngineProvider = Provider<SyncEngine>((ref) {
     outbox: ref.watch(outboxDaoProvider),
     sync: ref.watch(syncDaoProvider),
     ventas: ref.watch(ventasDaoProvider),
+    productos: ref.watch(productosDaoProvider),
     conectividad: ref.watch(connectivityServiceProvider),
   );
   ref.onDispose(motor.dispose);

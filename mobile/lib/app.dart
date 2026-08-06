@@ -45,7 +45,29 @@ class InventarioApp extends ConsumerWidget {
         );
         return MediaQuery(
           data: MediaQuery.of(context).copyWith(textScaler: escala),
-          child: hijo!,
+          // Tocar fuera de un campo cierra el teclado, en TODA la app.
+          //
+          // Se usa `Listener` y no `GestureDetector`: un `ListView`/`ScrollView`
+          // gana la arena de gestos ante un `onTap` del padre, y el teclado
+          // nunca bajaba al tocar entre campos del formulario de producto.
+          // `onPointerDown` no compite en esa arena.
+          child: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: (evento) {
+              final foco = FocusManager.instance.primaryFocus;
+              if (foco == null || !foco.hasFocus) return;
+              final caja = foco.context?.findRenderObject();
+              if (caja is! RenderBox || !caja.hasSize) {
+                foco.unfocus();
+                return;
+              }
+              final local = caja.globalToLocal(evento.position);
+              if (!caja.size.contains(local)) {
+                foco.unfocus();
+              }
+            },
+            child: hijo!,
+          ),
         );
       },
     );

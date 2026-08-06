@@ -88,6 +88,7 @@ export async function crearVenta(conn, datos, ctx) {
     return {
       ...calculo,
       uuid: l.uuid ?? nuevoUuid(),
+      movimiento_uuid: l.movimiento_uuid ?? null,
       linea: i + 1,
       productoId: p.id,
       productoUuid: p.uuid,
@@ -195,11 +196,15 @@ export async function crearVenta(conn, datos, ctx) {
   }
 
   // 5) Movimientos de inventario. Los triggers descuentan el stock.
+  //    Se reutiliza el uuid que mandó el dispositivo: si el servidor inventara
+  //    uno nuevo, el pull lo bajaría como fila distinta y el kardex local
+  //    mostraría la venta dos veces.
   for (const l of lineas) {
     await insertarMovimiento(
       conn,
       productos.get(l.productoUuid),
       {
+        uuid: l.movimiento_uuid,
         tipo: 'VENTA',
         cantidad: l.cantidad,
         precio_unitario: l.precio_unitario,
@@ -324,11 +329,15 @@ export async function anularVenta(conn, datos, ctx) {
   }
 
   // Devolución del stock.
+  const movimientosCliente = new Map(
+    (datos.movimientos ?? []).map((m) => [m.producto_uuid, m.movimiento_uuid]),
+  );
   for (const d of conProducto) {
     await insertarMovimiento(
       conn,
       productos.get(d.producto_uuid),
       {
+        uuid: movimientosCliente.get(d.producto_uuid) ?? undefined,
         tipo: 'ANULACION_VENTA',
         cantidad: d.cantidad, // el signo lo impone el tipo (+)
         venta_id: reversaId,

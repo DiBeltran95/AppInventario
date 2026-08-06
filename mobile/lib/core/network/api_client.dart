@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -101,6 +102,30 @@ class ApiClient {
 
   Future<Map<String, dynamic>> delete(String ruta) =>
       _ejecutar(() => _dio.delete<dynamic>('${AppConfig.versionApi}$ruta'));
+
+  /// Sube la foto de un producto. La UI no llama esto: lo hace el SyncEngine
+  /// cuando hay red, para que un alta offline no quede bloqueada.
+  Future<Map<String, dynamic>> subirImagen(File archivo) {
+    final form = FormData.fromMap({
+      'imagen': MultipartFile.fromFileSync(
+        archivo.path,
+        filename: archivo.uri.pathSegments.isEmpty
+            ? 'producto.jpg'
+            : archivo.uri.pathSegments.last,
+      ),
+    });
+    return _ejecutar(
+      () => _dio.post<dynamic>(
+        '${AppConfig.versionApi}/uploads/imagen',
+        data: form,
+        options: Options(
+          contentType: 'multipart/form-data',
+          sendTimeout: const Duration(seconds: 60),
+          receiveTimeout: const Duration(seconds: 60),
+        ),
+      ),
+    );
+  }
 
   /// Sondeo de conectividad REAL.
   ///

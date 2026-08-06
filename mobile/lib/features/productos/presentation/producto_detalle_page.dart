@@ -713,6 +713,10 @@ class _UltimosMovimientos extends ConsumerWidget {
                 .value ??
             const [];
 
+    // El kardex es información de inventario, no de mostrador: quién cargó
+    // qué y cuándo. Además, «Ver todo» lleva a una ruta de administración que
+    // al vendedor le rebotaría.
+    if (!ref.watch(esAdminProvider)) return const SizedBox.shrink();
     if (movimientos.isEmpty) return const SizedBox.shrink();
 
     return Card(

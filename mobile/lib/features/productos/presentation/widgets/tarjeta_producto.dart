@@ -1,32 +1,40 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/database/daos/productos_dao.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../auth/presentation/auth_providers.dart';
 
 /// Fila de producto en la lista del catálogo.
 ///
 /// El stock va a la derecha y con color, porque es el dato que se consulta de
 /// un vistazo; el precio queda subordinado. En una app de inventario, «¿cuánto
 /// queda?» se pregunta diez veces más que «¿cuánto vale?».
-class TarjetaProducto extends StatelessWidget {
+class TarjetaProducto extends ConsumerWidget {
   const TarjetaProducto({
     super.key,
     required this.item,
     required this.onTap,
     this.onLongPress,
-    this.mostrarCosto = false,
   });
 
   final ProductoConCategoria item;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
-  final bool mostrarCosto;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final dominio = context.dominio;
+
+    // El rol lo consulta la tarjeta, no quien la coloca.
+    //
+    // Antes esto era un parámetro `mostrarCosto` que cada pantalla debía
+    // acordarse de pasar. El costo de compra es dato privado del negocio: basta
+    // que alguien reutilice esta tarjeta un día y olvide el parámetro para
+    // filtrarlo. Preguntando aquí, ese descuido no puede ocurrir.
+    final mostrarCosto = ref.watch(esAdminProvider);
     final (colorStock, fondoStock) = item.agotado
         ? (dominio.peligro, dominio.peligroContenedor)
         : item.bajoStock
